@@ -1,5 +1,8 @@
 var p = require('path')
 var events = require('events')
+var stream = require('stream')
+
+var pump = require('pump')
 var thunky  = require('thunky')
 var from = require('from2')
 var temp = require('temp')
@@ -16,19 +19,22 @@ function Layerdrive (key, opts) {
   if (!(this instanceof Layerdrive)) return new Layerdrive(key, opts)
   if (!key) return new Error('Layerdrives must specify base archive keys.')
   opts = opts || {}
+
   this.opts = opts
-this.key = key
+  this.key = key
   this.version = opts.version
   this.storage = opts.layerStorage
   this.cow = getTempStorage(opts.tempStorage)
-this.parentKey = null
+
+  this.parentKey = null
   this.parentVersion = null
 
   // TODO(andrewosh): more flexible indexing
-  this.lastModifier = {}
+  this.lastModifiers = {}
   this.modsByLayer = {}
   this.modsByLayer[HEAD_KEY] = []
   this.layers = []
+  this.baseLayer = null
 
   this.ready = thunky(open)
   this.ready(onready)
@@ -48,20 +54,23 @@ this.parentKey = null
     })
 
     function processLayer (key, version) { 
-      if (version) opts.version = nextVersion
+      if (version) opts.version = version
       var layerStorage = getLayerStorage(self.storage, key)
       var layer = Hyperdrive(layerStorage, key, opts)
 
-      modsByLayer[key] = []
-      layers[key] = layer
+      self.modsByLayer[key] = []
+      self.layers[key] = layer
 
       currentLayer.on('ready', function () {
         self._readMetadata(currentLayer, function (err, meta) {
           if (err) return cb(err)
-          if (!meta) return cb(null)
+          if (!meta) {
+            self.baseLayer = key
+            return cb(null)
+          }
           for (var file in meta.modifiedFiles) {
-            self.lastModifier[mod] = layer
-            self.modsByLayer[nextKey].push(file)
+            self.lastModifiers[mod] = key
+            self.modsByLayer[key][file] = true
           }
           processLayer(meta.key, meta.version)
         })
@@ -93,10 +102,24 @@ Layerdrive.prototype._writeMetadata = function (layer, cb) {
     var metadata = JSON.stringify({
       parent: self.key,
       version: self.version,
-      modifiedFiles: self.modsByLayer[HEAD_KEY]
+      modifiedFiles: Object.keys(self.modsByLayer[HEAD_KEY])
     })
     layer.writeFile('./layerdrive.json', 'utf-8', metadata, cb)
   })
+}
+
+Layerdrive.prototype._getReadLayer = function (name) {
+  var lastModifier = self.lastModifiers[name]
+  var readLayer = lastModifier ? self.layers[lastModifier] : self.baseLayer
+}
+
+Layerdrive.prototype._copyOnWrite (readLayer, name, cb) {
+  return pump(readLayer.createReadStream(name), this.cow.createWriteStream(name), cb)
+}
+
+Layerdrive.prototype._updateModifier (name) {
+  this.lastModifiers[name] = HEAD_KEY
+  this.modsByLayer[HEAD_KEY][name] = true
 }
 
 Layerdrive.prototype.commit = function (cb) {
@@ -129,19 +152,55 @@ Layerdrive.prototype.replicate = function (opts) {
 }
 
 Layerdrive.prototype.createReadStream = function (name, opts) {
+  var self = this
+  var readStream = new stream.Readable()
+  this.ready(function (err) {
+    if (err) return readStream.emit('error', err)
+    var readLayer = self._getReadLayer(name)
+    pump(readLayer.createReadStream(name, opts), readStream)
+  })
+  return readStream
 }
 
 Layerdrive.prototype.readFile = function (name, opts, cb) {
-
+  this.ready(function (err) {
+    if (err) return cb(err)
+    var readLayer = self._getReadLayer(name)
+    return readLayer.readFile(name, opts, cb)
+  })
 }
 
 Layerdrive.prototype.createWriteStream = function (name, opts) {
-  this.mods[name] = true
+  var self = this
+  var writeStream = new stream.Writable()
+  this.ready(function (err) {
+    if (err) return writeStream.emit('error', err)
+    var readLayer = self._getReadLayer(name)
+    if (readLayer != self.key) {
+      self._copyOnWrite(readLayer, name, oncopy)
+    } else {
+      oncopy()
+    }
+    function oncopy (err) {
+      if (err) return writeStream.emit('error', err)
+      pump(writeStream, self.cow.createWriteStream(name, opts), function (err) {
+        if (err) return writeStream.emit('error', err)
+        self._updateModifier(name)
+      })
+    }
+  })
+  return writeStream
 }
 
 Layerdrive.prototype.writeFile = function (name, buf, opts, cb) {
-  this.mods[name] = true
-
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    var stream self.createWriteStream(name, opts)
+    stream.write(buf)
+    stream.on('end', cb)
+    stream.on('error', cb)
+  })
 }
 
 function getLayerStorage(storage, layer) {

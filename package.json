@@ -27,6 +27,7 @@
     "hyperdrive": "^9.4.8",
     "hyperdrive-import-files": "^3.0.0",
     "multiplex": "^6.7.0",
+    "pump": "^1.0.2",
     "scoped-fs": "^1.1.2",
     "temp": "^0.8.3",
     "thunky": "^1.0.2"
