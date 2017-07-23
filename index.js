@@ -4,6 +4,7 @@ var thunky  = require('thunky')
 var from = require('from2')
 var temp = require('temp')
 var hyperImport = require('hyperdrive-import-files')
+var mux = require('multiplex')
 var ScopedFs = require('scoped-fs')
 var Hyperdrive = require('hyperdrive')
 
@@ -16,8 +17,7 @@ function Layerdrive (key, opts) {
   if (!key) return new Error('Layerdrives must specify base archive keys.')
   opts = opts || {}
   this.opts = opts
-
-  this.key = key
+this.key = key
   this.version = opts.version
   this.storage = opts.layerStorage
   this.cow = getTempStorage(opts.tempStorage)
@@ -52,8 +52,8 @@ this.parentKey = null
       var layerStorage = getLayerStorage(self.storage, key)
       var layer = Hyperdrive(layerStorage, key, opts)
 
-      modsByLayer[nextKey] = []
-      layers.push(layer)
+      modsByLayer[key] = []
+      layers[key] = layer
 
       currentLayer.on('ready', function () {
         self._readMetadata(currentLayer, function (err, meta) {
@@ -119,7 +119,13 @@ Layerdrive.prototype.commit = function (cb) {
 }
 
 Layerdrive.prototype.replicate = function (opts) {
-
+  var multistream = mux()
+  for (var key in this.layers) {
+    var layer = this.layers[key]
+    var layerStream = layer.replicate()
+    layerStream.pipe(multistream.createStream(key)).pipe(layerStream)
+  }
+  return multistream
 }
 
 Layerdrive.prototype.createReadStream = function (name, opts) {
