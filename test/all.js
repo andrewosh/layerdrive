@@ -77,7 +77,7 @@ function createLayerdrive (numLayers, numFiles, opsPerLayer, fileLength, cb) {
       })
       reference[name] = contents
     }
-    ops.push(layerOps)
+    ops.unshift(layerOps)
   }
 
   var curLayer = createBaseHyperdrive()
@@ -85,10 +85,20 @@ function createLayerdrive (numLayers, numFiles, opsPerLayer, fileLength, cb) {
   makeNextLayer()
 
   function  makeNextLayer() {
-    _applyOps(curLayer, ops[layerIndex], onfinished)
-    function onfinished (err) {
+    _applyOps(curLayer, ops[layerIndex], prefinish)
+
+    function prefinish (err) {
       if (err) return cb(err)
-      curLayer = Layerdrive(curLayer.key, {
+      if (curLayer.commit) {
+        console.log('COMMITTING')
+        return curLayer.commit(finish)
+      }
+      finish()
+    }
+
+    function finish() {
+      var key = curLayer.key || curLayer.parent
+      curLayer = Layerdrive(key, {
         layerStorage: TEST_DIR,
         driveFactory: driveFactory
       })
@@ -144,21 +154,15 @@ test('read layer without writing, from stream', function (t) {
   })
 })
 
-  /*
 test('multiple read layers without writing', function (t) {
-  createLayerdrive(5, 5, 15, 100, function (err, drive, ops) {
+  createLayerdrive(5, 5, 15, 100, function (err, drive, _, reference) {
     t.error(err)
-    console.log('HERE and ops:', ops)
-    var op = ops[0][0]
-    drive.readFile(op.file, 'utf-8', function (err, contents) {
-      console.log('AND HERE')
+    assertValidReads(t, drive, reference, function (err) {
       t.error(err)
-      t.equal(contents, op.contents)
       t.end()
     })
   })
 })
-  */
 
 /*
 test('read/write with one layer, different layers')

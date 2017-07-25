@@ -1,3 +1,4 @@
+var fs = require('fs')
 var os = require('os')
 var p = require('path')
 var events = require('events')
@@ -23,6 +24,7 @@ function Layerdrive (parent, opts) {
   if (!(this instanceof Layerdrive)) return new Layerdrive(parent, opts)
   if (!parent) return new Error('Layerdrives must specify parent archive key.')
   opts = opts || {}
+  events.EventEmitter.call(this)
 
   this.opts = opts
   this.parent = parent
@@ -61,7 +63,7 @@ function Layerdrive (parent, opts) {
     function processLayer (key, version) { 
       console.log('in processLayer')
       if (version) opts.version = version
-      var keyString = key.toString('base64')
+      var keyString = makeKeyString(key)
       var layerStorage = getLayerStorage(self.storage, keyString)
       var layer = self.driveFactory(layerStorage, key, opts)
       console.log('here')
@@ -138,7 +140,7 @@ Layerdrive.prototype._writeMetadata = function (layer, cb) {
       version: self.version,
       modifiedFiles: Object.keys(self.modsByLayer[HEAD_KEY])
     })
-    layer.writeFile('/layerdrive.json', 'utf-8', metadata, cb)
+    layer.writeFile('/layerdrive.json', metadata, 'utf-8', cb)
   })
 }
 
@@ -155,7 +157,6 @@ Layerdrive.prototype._copyOnWrite = function (readLayer, name, cb) {
   var readStream = readLayer.createReadStream(name)
   var writeStream = this.cow.createWriteStream(name)
   return pump(readStream, writeStream, function (err) {
-    console.log('IN CB')
     cb(err)
   })
 }
@@ -167,7 +168,7 @@ Layerdrive.prototype._updateModifier = function (name) {
 
 Layerdrive.prototype.commit = function (cb) {
   var self = this
-  var driveStorage = this.getLayerStorage(this.storage, HEAD_KEY)
+  var driveStorage = getLayerStorage(self.storage, HEAD_KEY)
   var drive = Hyperdrive(driveStorage, this.opts)
   this._writeMetadata(drive, function (err) {
     if (err) return cb(err)
@@ -176,7 +177,7 @@ Layerdrive.prototype.commit = function (cb) {
       // TODO(andrewosh): improve archive storage for non-directory storage types.
       // The resulting Hyperdrive should be stored in a properly-named directory.
       if (typeof driveStorage === 'string') {
-        var newStorage = this.getLayerStorage(this.storage, drive.key)
+        var newStorage = getLayerStorage(self.storage, makeKeyString(drive.key))
         fs.rename(driveStorage, newStorage, function (err) {
           if (err) return cb(err)
           return cb(null, drive)
@@ -227,7 +228,6 @@ Layerdrive.prototype.readFile = function (name, opts, cb) {
 Layerdrive.prototype.createWriteStream = function (name, opts) {
   var self = this
   var writeStream = new stream.PassThrough(opts)
-  writeStream.cork()
   this.ready(function (err) {
     if (err) return writeStream.emit('error', err)
     var readLayer = self._getReadLayer(name)
@@ -235,7 +235,9 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
     function oncopy (err) {
       console.log('in oncopy')
       if (err) return writeStream.emit('error', err)
+      console.log('at pump')
       pump(writeStream, self.cow.createWriteStream(name, opts), function (err) {
+        console.log('after pump')
         if (err) return writeStream.emit('error', err)
         console.log('pump finished')
         self._updateModifier(name)
@@ -251,18 +253,20 @@ Layerdrive.prototype.writeFile = function (name, buf, opts, cb) {
   if (!opts) opts = {}
   if (typeof buf === 'string') buf = new Buffer(buf, opts.encoding || 'utf-8')
 
-  console.log('in writeFile')
-
   var self = this
   this.ready(function (err) {
     console.log('about to create write stream')
     if (err) return cb(err)
     var stream = self.createWriteStream(name, opts)
     stream.write(buf)
-    stream.on('end', function () { console.log('IT ENDED'); cb() } )
-    stream.on('finish', function () { console.log('IT ENDED'); cb() } )
-    stream.on('error', function (err){ console.error(err); cb() } )
+    stream.end()
+    stream.on('error', cb)
+    stream.on('end', cb)
   })
+}
+
+function makeKeyString (key) {
+  return key.toString('base64')
 }
 
 function getLayerStorage(storage, layer) {
