@@ -4,7 +4,8 @@
   "description": "A union filesystem based on Hyperdrive",
   "main": "index.js",
   "scripts": {
-    "test": "tape test/*.js"
+    "test": "npm run format && tape test/*.js",
+    "format": "standard --fix && dependency-check --unused --no-dev package.json"
   },
   "repository": {
     "type": "git",
@@ -22,26 +23,23 @@
   },
   "homepage": "https://github.com/andrewosh/layerdrive#readme",
   "dependencies": {
-    "concat-stream": "^1.6.0",
-    "diff-file-tree": "^2.1.0",
-    "from2": "^2.3.0",
+    "duplexify": "^3.5.0",
     "hyperdrive": "^9.4.8",
     "hyperdrive-import-files": "^3.0.0",
     "mkdirp": "^0.5.1",
     "multiplex": "^6.7.0",
     "pump": "^1.0.2",
-    "sanitize-filename": "^1.6.1",
     "scoped-fs": "^1.1.2",
-    "stream-collector": "^1.0.1",
     "temp": "^0.8.3",
-    "through2": "^2.0.3",
     "thunky": "^1.0.2"
   },
   "devDependencies": {
+    "dependency-check": "^2.9.1",
     "random-access-memory": "^2.4.0",
     "random-item": "^1.0.0",
     "randomstring": "^1.1.5",
     "rimraf": "^2.6.1",
+    "standard": "^10.0.2",
     "tape": "^4.7.0"
   }
 }

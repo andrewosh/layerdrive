@@ -8,12 +8,10 @@ var inherits = require('inherits')
 var duplexify = require('duplexify')
 var mkdirp = require('mkdirp')
 var pump = require('pump')
-var thunky  = require('thunky')
-var from = require('from2')
+var thunky = require('thunky')
 var temp = require('temp')
 var hyperImport = require('hyperdrive-import-files')
 var mux = require('multiplex')
-var sanitize = require('sanitize-filename')
 var ScopedFs = require('scoped-fs')
 var Hyperdrive = require('hyperdrive')
 
@@ -75,7 +73,7 @@ function Layerdrive (parent, opts) {
       })
     }
 
-    function processLayer (key, version) { 
+    function processLayer (key, version) {
       if (version) opts.version = version
       var keyString = makeKeyString(key)
       var layerStorage = getLayerStorage(self.storage, keyString)
@@ -93,7 +91,7 @@ function Layerdrive (parent, opts) {
             self.baseLayer = key
             return indexLayers(metadata, cb)
           }
-          processLayer(new Buffer(meta.parent, 'hex'), meta.version)
+          processLayer(Buffer.from(meta.parent, 'hex'), meta.version)
         })
       }))
     }
@@ -184,22 +182,23 @@ Layerdrive.prototype.commit = function (cb) {
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
-    self._writeMetadata(function (err) {
+    var status = hyperImport(self.drive, self.cow.base, function (err) {
       if (err) return cb(err)
-      hyperImport(self.drive, self.cow.base, function (err) {
-        if (err) return cb(err)
-        // TODO(andrewosh): improve archive storage for non-directory storage types.
-        // The resulting Hyperdrive should be stored in a properly-named directory.
-        if (typeof self.driveStorage === 'string') {
-          var newStorage = getLayerStorage(self.storage, makeKeyString(self.drive.key))
-          fs.rename(self.driveStorage, newStorage, function (err) {
-            if (err) return cb(err)
-            return cb(null)
-          })
-        } else {
-          return cb(null)
-        }
-      })
+      // TODO(andrewosh): improve archive storage for non-directory storage types.
+      // The resulting Hyperdrive should be stored in a properly-named directory.
+      if (typeof self.driveStorage === 'string') {
+        var newStorage = getLayerStorage(self.storage, makeKeyString(self.drive.key))
+        fs.rename(self.driveStorage, newStorage, function (err) {
+          if (err) return cb(err)
+          return self._writeMetadata(cb)
+        })
+      } else {
+        return self._writeMetadata(cb)
+      }
+    })
+    status.on('file imported', function (entry) {
+      var relativePath = p.relative(self.cow.base, entry.path)
+      return self._updateModifier(relativePath)
     })
   })
 }
@@ -255,7 +254,7 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
       proxy.setWritable(self.cow.createWriteStream(name, opts))
       proxy.setReadable(false)
       proxy.uncork()
-      proxy.on('prefinish', function () {
+      proxy.on('finish', function () {
         self._updateModifier(name)
       })
     }
@@ -267,7 +266,7 @@ Layerdrive.prototype.writeFile = function (name, buf, opts, cb) {
   if (typeof opts === 'function') return this.writeFile(name, buf, null, opts)
   if (typeof opts === 'string') opts = {encoding: opts}
   if (!opts) opts = {}
-  if (typeof buf === 'string') buf = new Buffer(buf, opts.encoding || 'utf-8')
+  if (typeof buf === 'string') buf = Buffer.from(buf, opts.encoding || 'utf-8')
 
   var self = this
   this.ready(function (err) {
@@ -284,7 +283,7 @@ function makeKeyString (key) {
   return key.toString('hex')
 }
 
-function getLayerStorage(storage, layer) {
+function getLayerStorage (storage, layer) {
   storage = storage || p.join(__dirname, 'layers')
   if (typeof storage === 'string') {
     return p.join(storage, makeKeyString(layer))
@@ -297,12 +296,12 @@ function getLayerStorage(storage, layer) {
 function getTempStorage (storage, cb) {
   if (!storage) {
     temp.track()
-    var tempDir = p.join(os.tmpdir(), "containers")
+    var tempDir = p.join(os.tmpdir(), 'containers')
     mkdirp(tempDir, function (err) {
       if (err) return cb(err)
       temp.mkdir({
-        prefix: "container-",
-        dir: p.join(os.tmpdir(), "containers")
+        prefix: 'container-',
+        dir: p.join(os.tmpdir(), 'containers')
       }, function (err, dir) {
         if (err) return cb(err)
         return cb(null, new ScopedFs(dir))
@@ -312,3 +311,7 @@ function getTempStorage (storage, cb) {
     return cb(null, storage)
   }
 }
+
+process.on('exit', function () {
+  temp.cleanupSync()
+})

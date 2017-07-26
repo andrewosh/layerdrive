@@ -5,7 +5,6 @@ var test = require('tape')
 var pump = require('pump')
 var mkdirp = require('mkdirp')
 var rimraf = require('rimraf')
-var ram = require('random-access-memory')
 var randomstring = require('randomstring')
 var randomItem = require('random-item')
 
@@ -18,7 +17,7 @@ mkdirp.sync(TEST_DIR)
 
 var drives = {}
 
-function _applyOps(drive, ops, cb) {
+function _applyOps (drive, ops, cb) {
   drive.on('error', function (err) {
     return cb(err)
   })
@@ -28,7 +27,7 @@ function _applyOps(drive, ops, cb) {
     var opIndex = 0
     if (ops.length !== 0) _nextOp()
     function _nextOp () {
-      var op = ops[opIndex] 
+      var op = ops[opIndex]
       drive.writeFile(op.file, op.contents, function (err) {
         if (err) return cb(err)
         if (++opIndex === ops.length) return cb(null)
@@ -47,7 +46,7 @@ function createBaseHyperdrive (cb) {
   })
 }
 
-function driveFactory(storage, key, opts) {
+function driveFactory (storage, key, opts) {
   var drive = Hyperdrive(storage, key, opts)
   drive.ready(function (err) {
     if (err) return drive.emit('error', err)
@@ -64,7 +63,7 @@ function driveFactory(storage, key, opts) {
   }
   return drive
 }
-      
+
 function createLayerdrive (numLayers, numFiles, opsPerLayer, fileLength, cb) {
   var files = []
   for (var i = 0; i < numFiles; i++) {
@@ -74,7 +73,7 @@ function createLayerdrive (numLayers, numFiles, opsPerLayer, fileLength, cb) {
   var ops = []
   var reference = {}
 
-  for (var i = 0; i < numLayers; i++) {
+  for (i = 0; i < numLayers; i++) {
     var layerOps = []
     for (var j = 0; j < opsPerLayer; j++) {
       var name = randomItem(files)
@@ -110,7 +109,7 @@ function createLayerdrive (numLayers, numFiles, opsPerLayer, fileLength, cb) {
 
     function finish (key) {
       layerCount++
-      if (layerCount == numLayers) return cb(null, layer, ops, reference)
+      if (layerCount === numLayers) return cb(null, layer, ops, reference)
       makeNextLayer(null, Layerdrive(key, {
         layerStorage: p.join(TEST_DIR, key.toString('hex')),
         driveFactory: driveFactory
@@ -133,7 +132,7 @@ function assertValidReads (t, drive, files, cb) {
       if (++numFinished === fileList.length) return cb(null)
     })
   })
-} 
+}
 function assertValidReadstreams (t, drive, files, cb) {
   var numFinished = 0
   var fileList = Object.keys(files)
@@ -178,7 +177,7 @@ test('read/write works for a single layer, multiple files', function (t) {
 })
 
 test('read/write work for many layers, multiple files', function (t) {
-  createLayerdrive(20, 100, 100, 100, function (err, drive, _, reference) {
+  createLayerdrive(20, 500, 100, 10, function (err, drive, _, reference) {
     t.error(err)
     assertValidReadstreams(t, drive, reference, function (err) {
       t.error(err)
