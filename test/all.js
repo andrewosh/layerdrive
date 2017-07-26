@@ -19,21 +19,17 @@ mkdirp.sync(TEST_DIR)
 var drives = {}
 
 function _applyOps(drive, ops, cb) {
-  console.log('here')
   drive.on('error', function (err) {
     return cb(err)
   })
   drive.ready(onready)
 
   function onready () {
-    console.log('and here')
     var opIndex = 0
     if (ops.length !== 0) _nextOp()
     function _nextOp () {
       var op = ops[opIndex] 
-      console.log('writing', op.contents, 'to', op.file)
       drive.writeFile(op.file, op.contents, function (err) {
-        console.log('file written!')
         if (err) return cb(err)
         if (++opIndex === ops.length) return cb(null)
         _nextOp()
@@ -47,7 +43,6 @@ function createBaseHyperdrive (cb) {
   drive.ready(function (err) {
     if (err) return cb(err)
     drives[drive.key] = drive
-    console.log('base key:', drive.key.toString('hex'))
     return cb(null, drive)
   })
 }
@@ -59,13 +54,9 @@ function driveFactory(storage, key, opts) {
     replicate(drive.key)
   })
   function replicate (key) {
-    console.log('drive key in replicate:', key.toString('hex'))
     var existingDrive = drives[key]
     if (existingDrive) {
-      console.log('before replicate')
       var newStream = drive.replicate()
-      console.log('after replicate')
-      console.log('replicating drives w/key:', key.toString('hex'))
       newStream.pipe(existingDrive.replicate()).pipe(newStream)
     } else {
       drives[key] = drive
@@ -106,7 +97,6 @@ function createLayerdrive (numLayers, numFiles, opsPerLayer, fileLength, cb) {
     _applyOps(layer, ops[layerCount], commit)
 
     function commit (err) {
-      console.log('in finish')
       if (err) return cb(err)
       if (layer.commit) {
         layer.commit(function (err) {
@@ -137,7 +127,6 @@ function assertValidReads (t, drive, files, cb) {
       if (!files[file]) {
         t.notEqual(err, null)
       } else {
-        console.log('the damn', file, 'should be there as', files[file])
         t.error(err)
         t.equal(contents, files[file])
       }
@@ -150,9 +139,6 @@ function assertValidReadstreams (t, drive, files, cb) {
   var fileList = Object.keys(files)
   fileList.forEach(function (file) {
     var readStream = drive.createReadStream(file)
-    readStream.on('data', function (data) {
-      console.log('data:', data)
-    })
     pump(readStream, concat(gotContents))
     function gotContents (contents) {
       t.equal(contents.toString('utf-8'), files[file])
@@ -161,8 +147,8 @@ function assertValidReadstreams (t, drive, files, cb) {
   })
 }
 
-test('read layer without writing', function (t) {
-  createLayerdrive(1, 1, 1, 100, function (err, drive, _, reference) {
+test('read/write works for a single layer, single file', function (t) {
+  createLayerdrive(2, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
     assertValidReads(t, drive, reference, function (err) {
       t.error(err)
@@ -171,8 +157,8 @@ test('read layer without writing', function (t) {
   })
 })
 
-test('read layer without writing, from stream', function (t) {
-  createLayerdrive(1, 1, 1, 100, function (err, drive, _, reference) {
+test('read/write works for a single layer, single file, with streams', function (t) {
+  createLayerdrive(2, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
     assertValidReadstreams(t, drive, reference, function (err) {
       t.error(err)
@@ -181,21 +167,27 @@ test('read layer without writing, from stream', function (t) {
   })
 })
 
-test('multiple read layers without writing', function (t) {
-  createLayerdrive(20, 1000, 10, 10, function (err, drive, _, reference) {
+test('read/write works for a single layer, multiple files', function (t) {
+  createLayerdrive(2, 10, 10, 100, function (err, drive, _, reference) {
     t.error(err)
-    console.log('lastModifiers:', drive.lastModifiers)
-    assertValidReads(t, drive, reference, function (err) {
+    assertValidReadstreams(t, drive, reference, function (err) {
       t.error(err)
       t.end()
     })
   })
 })
 
-/*
-test('read/write with one layer, different layers')
-test('read/write with one layer, reuse files')
-test('read/write with multiple layers')
-test('layer storage')
-test('replication')
-*/
+test('read/write work for many layers, multiple files', function (t) {
+  createLayerdrive(20, 100, 100, 100, function (err, drive, _, reference) {
+    t.error(err)
+    assertValidReadstreams(t, drive, reference, function (err) {
+      t.error(err)
+      t.end()
+    })
+  })
+})
+
+test('custom layer storage works')
+test('replication works for multiple layerdrives', function (t) {
+  
+})
