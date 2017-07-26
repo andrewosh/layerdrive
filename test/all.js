@@ -187,7 +187,10 @@ test('read/write work for many layers, multiple files', function (t) {
   })
 })
 
-test('custom layer storage works')
-test('replication works for multiple layerdrives', function (t) {
-  
+test('cleanup', function (t) {
+  rimraf.sync(TEST_DIR)
+  t.end()
 })
+
+test('different layer storage')
+test('replication')
