@@ -7,12 +7,11 @@ var mkdirp = require('mkdirp')
 var rimraf = require('rimraf')
 var randomstring = require('randomstring')
 var randomItem = require('random-item')
-
-var Layerdrive = require('..')
 var Hyperdrive = require('hyperdrive')
 
+var Layerdrive = require('..')
+
 var TEST_DIR = './test-layers'
-var BASE_DIR = p.join(TEST_DIR, 'base')
 mkdirp.sync(TEST_DIR)
 
 var drives = {}
@@ -37,34 +36,25 @@ function _applyOps (drive, ops, cb) {
   }
 }
 
-function createBaseHyperdrive (cb) {
-  var drive = Hyperdrive(BASE_DIR)
-  drive.ready(function (err) {
-    if (err) return cb(err)
-    drives[drive.key] = drive
-    return cb(null, drive)
-  })
-}
-
 function driveFactory (storage, key, opts) {
-  var drive = Hyperdrive(storage, key, opts)
-  drive.ready(function (err) {
-    if (err) return drive.emit('error', err)
-    replicate(drive.key)
-  })
-  function replicate (key) {
-    var existingDrive = drives[key]
-    if (existingDrive) {
-      var newStream = drive.replicate()
-      newStream.pipe(existingDrive.replicate()).pipe(newStream)
-    } else {
-      drives[key] = drive
-    }
+  if ((typeof key === 'object') && !(key instanceof Buffer)) {
+    opts = key
+    key = null
   }
+  var drive = Hyperdrive(storage, key, opts)
+  drive.on('ready', function () {
+    var existingDrive = drives[drive.key]
+    if (existingDrive) {
+      var existingStream = existingDrive.replicate()
+      existingStream.pipe(drive.replicate()).pipe(existingStream)
+    } else {
+      drives[drive.key] = drive
+    }
+  })
   return drive
 }
 
-function createLayerdrive (numLayers, numFiles, opsPerLayer, fileLength, cb) {
+function createLayerdrive (base, numLayers, numFiles, opsPerLayer, fileLength, cb) {
   var files = []
   for (var i = 0; i < numFiles; i++) {
     files.push('/' + randomstring.generate(10))
@@ -88,32 +78,34 @@ function createLayerdrive (numLayers, numFiles, opsPerLayer, fileLength, cb) {
   }
 
   var layerCount = 0
-  createBaseHyperdrive(makeNextLayer)
 
-  function makeNextLayer (err, layer) {
+  var baseLayer = Layerdrive(p.join(__dirname, 'data', base + '.tar'),
+    driveFactory,
+    { layerDir: TEST_DIR })
+  baseLayer.ready(function (err) {
     if (err) return cb(err)
+    return makeNextLayer(baseLayer)
+  })
 
+  function makeNextLayer (layer) {
     _applyOps(layer, ops[layerCount], commit)
 
     function commit (err) {
       if (err) return cb(err)
       if (layer.commit) {
-        layer.commit(function (err) {
+        layer.commit(function (err, nextLayer) {
           if (err) return cb(err)
-          finish(layer.key)
+          finish(nextLayer)
         })
       } else {
-        finish(layer.key)
+        finish(layer)
       }
     }
 
-    function finish (key) {
+    function finish (nextLayer) {
       layerCount++
-      if (layerCount === numLayers) return cb(null, layer, ops, reference)
-      makeNextLayer(null, Layerdrive(key, {
-        layerStorage: p.join(TEST_DIR, key.toString('hex')),
-        driveFactory: driveFactory
-      }))
+      if (layerCount === numLayers) return cb(null, nextLayer, ops, reference)
+      return makeNextLayer(nextLayer)
     }
   }
 }
@@ -147,7 +139,7 @@ function assertValidReadstreams (t, drive, files, cb) {
 }
 
 test('read/write works for a single layer, single file', function (t) {
-  createLayerdrive(2, 1, 1, 100, function (err, drive, _, reference) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
     assertValidReads(t, drive, reference, function (err) {
       t.error(err)
@@ -157,7 +149,7 @@ test('read/write works for a single layer, single file', function (t) {
 })
 
 test('read/write works for a single layer, single file, with streams', function (t) {
-  createLayerdrive(2, 1, 1, 100, function (err, drive, _, reference) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
     assertValidReadstreams(t, drive, reference, function (err) {
       t.error(err)
@@ -167,7 +159,7 @@ test('read/write works for a single layer, single file, with streams', function 
 })
 
 test('read/write works for a single layer, multiple files', function (t) {
-  createLayerdrive(2, 10, 10, 100, function (err, drive, _, reference) {
+  createLayerdrive('alpine', 20, 10, 5, 100, function (err, drive, _, reference) {
     t.error(err)
     assertValidReadstreams(t, drive, reference, function (err) {
       t.error(err)
@@ -177,9 +169,9 @@ test('read/write works for a single layer, multiple files', function (t) {
 })
 
 test('read/write work for many layers, multiple files', function (t) {
-  createLayerdrive(20, 500, 100, 10, function (err, drive, _, reference) {
+  createLayerdrive('alpine', 40, 500, 5, 10, function (err, drive, _, reference) {
     t.error(err)
-    assertValidReadstreams(t, drive, reference, function (err) {
+    assertValidReads(t, drive, reference, function (err) {
       t.error(err)
       t.end()
     })
