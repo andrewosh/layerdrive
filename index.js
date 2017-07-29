@@ -46,6 +46,7 @@ function Layerdrive (key, opts) {
   this.metadata = null
   this.layers = null
   this.layerDrives = {}
+  this.copiedFiles = {}
 
   this.driveFactory = opts.driveFactory || Hyperdrive
 
@@ -109,7 +110,7 @@ Layerdrive.prototype._readMetadata = function (cb) {
   var self = this
   self.baseDrive.ready(function (err) {
     if (err) return cb(err)
-    loadDatabase()
+    readDatabase()
   })
 
   function readDatabase () {
@@ -173,24 +174,27 @@ Layerdrive.prototype._writeMetadata = function (cb) {
   }
 }
 
-Layerdrive.prototype._getReadLayer = function (name) {
+Layerdrive.prototype._getReadLayer = function (name, cb) {
   var self = this
-  var lastModifier = self.lastModifiers[name]
-  if (lastModifier === HEAD_KEY) {
+  if (this.copiedFiles[name]) {
     return self.cow
   }
-  var readLayer = lastModifier ? self.layers[lastModifier] : self.layers[self.baseLayer]
-  return readLayer
+  this.fileIndex.get(name, function (err, index) {
+    if (err) return cb(err)
+    return cb(null, self.layers[index])
+  })
 }
 
 Layerdrive.prototype._copyOnWrite = function (readLayer, name, cb) {
   var self = this
-  if (this.lastModifiers[name] === HEAD_KEY) return cb()
+  this.fileIndex
+  if (this.copiedFiles[name]) return cb()
   readLayer.exists(name, function (exists) {
     if (!exists) return cb()
     var readStream = readLayer.createReadStream(name)
     var writeStream = self.cow.createWriteStream(name, { start: 0 })
     return pump(readStream, writeStream, function (err) {
+      this.copiedFiles[name] = true
       cb(err)
     })
   })
@@ -259,8 +263,10 @@ Layerdrive.prototype.createReadStream = function (name, opts) {
   var readStream = new stream.PassThrough(opts)
   this.ready(function (err) {
     if (err) return readStream.emit('error', err)
-    var readLayer = self._getReadLayer(name)
-    pump(readLayer.createReadStream(name, opts), readStream)
+    self._getReadLayer(name, function (err, layer) {
+      if (err) return readStream.emit('error', err)
+      pump(layer.createReadStream(name, opts), readStream)
+    })
   })
   return readStream
 }
@@ -269,9 +275,11 @@ Layerdrive.prototype.readFile = function (name, opts, cb) {
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
-    var readLayer = self._getReadLayer(name)
-    readLayer.readFile(name, opts, function (err, contents) {
-      return cb(err, contents)
+    self._getReadLayer(name, function (err, layer) {
+      if (err) return cb(err)
+      readLayer.readFile(name, opts, function (err, contents) {
+        return cb(err, contents)
+      })
     })
   })
 }
@@ -282,22 +290,16 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
   proxy.cork()
   this.ready(function (err) {
     if (err) return proxy.emit('error', err)
-
-    var readLayer = self._getReadLayer(name)
-    if (readLayer) {
+    if (self.copiedFiles[name]) return oncopy()
+    self._getReadLayer(name, function (err, layer) {
+      if (err) return proxy.emit('error', err)
       self._copyOnWrite(readLayer, name, oncopy)
-    } else {
-      oncopy()
-    }
-
+    })
     function oncopy (err) {
       if (err) return proxy.emit('error', err)
       proxy.setWritable(self.cow.createWriteStream(name, opts))
       proxy.setReadable(false)
       proxy.uncork()
-      proxy.on('finish', function () {
-        self._updateModifier(name)
-      })
     }
   })
   return proxy
