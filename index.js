@@ -19,6 +19,10 @@ var hyperImport = require('hyperdrive-import-files')
 var mux = require('multiplex')
 var ScopedFs = require('scoped-fs')
 
+// TODO: merge symlink/link/chmod/chown upstream?
+var Stat = require('hyperdrive/lib/stat')
+var DEFAULT_FMODE = (4 | 2 | 0) << 6 | ((4 | 0 | 0) << 3) | (4 | 0 | 0) // rw-r--r--
+
 var temp = require('temp')
 temp.track()
 
@@ -215,8 +219,21 @@ Layerdrive.prototype._writeMetadata = function (cb) {
   var self = this
   self.metadataDrive.ready(function (err) {
     if (err) return cb(err)
-    writeDatabase()
+    writeStats()
   })
+
+  function writeStats () {
+    var stats = Object.keys(self.statCache)
+    var name = null
+    function writeNextStat () {
+      name = stats.pop()
+      self.metadataDrive.tree.put(name, self.statCache[name], function (err) {
+        if (err) return cb(err)
+        if (stats.length !== 0) return writeNextStat()
+        return writeDatabase()
+      })
+    })
+  }
 
   function writeDatabase () {
     self.fileIndex.close(function (err) {
@@ -412,6 +429,11 @@ Layerdrive.prototype.unlink = function (name, cb) {
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
+    self.stat(name, function (err, stat) {
+      if (err) return cb(err)
+      if stat.isSymbolicLink()
+    })
+    if (self.statCache[name]) delete self.statCache[name]
     self.fileIndex.del(toIndexKey(name), function (err) {
       if (err) return cb(err)
       self.cow.exists(name, function (exist) {
@@ -522,6 +544,50 @@ Layerdrive.prototype.chmod = function (name, mode, cb) {
       if (err) return cb(err)
       stat.mode = mode
       return cb(null, stat)
+    })
+  })
+}
+
+Layerdrive.prototype.symlink = function (src, dest, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    self.stat(dest, function (err, stat) {
+      if (err) return cb(err)
+      if (stat) return cb(new Error('File already exists.'))
+      var st = {
+        linkname: src,
+        uid: 0,
+        gid: 0,
+        mode: DEFAULT_FMODE | Stat.IFLNK
+      }
+      self.tree.put(dest, st, cb)
+    })
+  })
+}
+
+Layerdrive.prototype.link = function (src, dest, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    self.stat(src, function (err, srcStat) {
+      if (err) return cb(err)
+      self.stat(dest, function (err, destStat) {
+        if (err) return cb(err)
+        if (destStat) return cb(new Error('File already exists.'))
+        var st = {
+          linkname: src,
+          uid: 0,
+          gid: 0,
+          mode: DEFAULT_FMODE | Stat.IFLNK
+        }
+        self.tree.put(dest, st, function (err) {
+          if (err) return cb(err)
+          srcStat.nlink++
+          return cb()
+        })
+
+      })
     })
   })
 }

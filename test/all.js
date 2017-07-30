@@ -251,6 +251,32 @@ test('stats', function (t) {
   })
 })
 
+test('chown/chmod', function (t) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    var file = Object.keys(reference)[0]
+    drive.chown(file, 10, 11, function (err, stat) {
+      t.error(err)
+      t.equal(stat.uid, 10)
+      t.equal(stat.gid, 11)
+      drive.chmod(file, 511, function (err, stat) {
+        t.error(err)
+        t.equal(stat.mode, 511)
+        drive.commit(function (err, newDrive) {
+          t.error(err)
+          newDrive.stat(file, function (err, stat) {
+            t.error(err)
+            t.equal(stat.uid, 10)
+            t.equal(stat.gid, 10)
+            t.equal(stat.mode, 511)
+            t.end()
+          })
+        })
+      })
+    })
+  })
+})
+
 test('cleanup', function (t) {
   rimraf.sync(TEST_DIR)
   t.end()
