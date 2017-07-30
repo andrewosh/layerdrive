@@ -158,7 +158,7 @@ test('read/write works for a single layer, single file, with streams', function 
   })
 })
 
-test.skip('read/write works for a single layer, multiple files', function (t) {
+test('read/write works for a single layer, multiple files', function (t) {
   createLayerdrive('alpine', 20, 10, 5, 100, function (err, drive, _, reference) {
     t.error(err)
     assertValidReadstreams(t, drive, reference, function (err) {
@@ -168,8 +168,8 @@ test.skip('read/write works for a single layer, multiple files', function (t) {
   })
 })
 
-test.skip('read/write work for many layers, multiple files', function (t) {
-  createLayerdrive('alpine', 40, 500, 5, 10, function (err, drive, _, reference) {
+test('read/write work for many layers, multiple files', function (t) {
+  createLayerdrive('alpine', 40, 500, 100, 10, function (err, drive, _, reference) {
     t.error(err)
     assertValidReads(t, drive, reference, function (err) {
       t.error(err)
@@ -186,7 +186,6 @@ test('deletion', function (t) {
       drive.unlink('/hello', function (err) {
         t.error(err)
         drive.readFile('/hello', function (err, contents) {
-          console.log('after readFile')
           t.notEqual(err, undefined)
           t.end()
         })
@@ -199,26 +198,19 @@ test('directory creation/reads/deletion', function (t) {
   // async/await's sounding sweet...
   createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
-    console.log('making directory as a first step')
     drive.mkdir('/hello_dir', function (err) {
-      console.log('made dir')
       t.error(err)
       drive.writeFile('/hello_dir/world', 'goodbye', function (err) {
-        console.log('wrote file')
         t.error(err)
         drive.readdir('/hello_dir', function (err, files) {
-          console.log('read dir, files:', files)
           t.error(err)
           t.equal(files.length, 1)
           t.equal(files[0], '/hello_dir/world')
           drive.rmdir('/hello_dir', function (err) {
-            console.log('tried to remove dir')
             t.notEqual(err, undefined)
             drive.unlink('/hello_dir/world', function (err) {
-              console.log('unlinked file')
               t.error(err)
               drive.rmdir('/hello_dir', function (err) {
-                console.log('tried to remove again')
                 t.error(err)
                 t.end()
               })

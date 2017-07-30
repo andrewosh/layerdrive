@@ -50,7 +50,9 @@ function Layerdrive (key, driveFactory, opts) {
   this.metadata = null
   this.layers = []
   this.layerDrives = {}
+
   this.lastModifiers = {}
+  this.statCache = {}
 
   var self = this
   this.driveFactory = driveFactory
@@ -268,7 +270,7 @@ Layerdrive.prototype._makeDbValue = function () {
   return buf
 }
 
-Layerdrive.prototype._updateModifier = function (name, cb) {
+Layerdrive.prototype._updateFileIndex = function (name, cb) {
   this.fileIndex.put(toIndexKey(name), this._makeDbValue(), cb)
 }
 
@@ -378,11 +380,12 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
     })
     function oncopy (err, readLayer) {
       if (err) return proxy.emit('error', err)
-      self.lastModifiers[name] = readLayer ? readLayer.key : true
-      self._updateModifier(name)
-      proxy.setWritable(self.cow.createWriteStream(name, opts))
-      proxy.setReadable(false)
-      proxy.uncork()
+      self._updateFileIndex(name, function (err) {
+        if (err) return proxy.emit('error', err)
+        proxy.setWritable(self.cow.createWriteStream(name, opts))
+        proxy.setReadable(false)
+        proxy.uncork()
+      })
     }
   })
   return proxy
@@ -427,9 +430,9 @@ Layerdrive.prototype.mkdir = function (name, opts, cb) {
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
-    self.cow.mkdir(name, function (err) {
+    self.cow.mkdir(name, opts, function (err) {
       if (err) return cb(err)
-      self._updateModifier(name, function (err) {
+      self._updateFileIndex(name, function (err) {
         return cb(err)
       })
     })
@@ -448,7 +451,7 @@ Layerdrive.prototype.rmdir = function (name, cb) {
         return onremoved()
       })
       function onremoved () {
-        self._updateModifier(name, cb)
+        self._updateFileIndex(name, cb)
       }
     })
   })
@@ -476,25 +479,50 @@ Layerdrive.prototype.stat = function (name, cb) {
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
-    var lastModifier = self.lastModifiers[name]
-    if (lastModifier) {
-      self.cow.stat(name, function (err, cowStat) {
-        if (err) return cb(err)
-        if (!lastModifier.key) return cb(null, cowStat)
-        var layer = self.layerDrives[lastModifier]
-        layer.stat(name, function (err, stat) {
+    var cachedStat = self.statCache[name]
+    if (cachedStat) return onstat(null, cachedStat)
+    self._getReadLayer(name, function (err, layer) {
+      if (err) return cb(err)
+      if (layer.key) return layer.stat(name, onstat)
+    })
+    function onstat (err, stat) {
+      self.statCache[name] = stat
+      if (self.lastModifiers[name]) {
+        self.cow.stat(name, function (err, cowStat) {
           if (err) return cb(err)
           stat.size = cowStat.size
           stat.mtime = cowStat.mtime
           return cb(null, stat)
         })
-      })
-    } else {
-      self._getReadLayer(name, function (err, layer) {
-        if (err) return cb(err)
-        return layer.stat(name, cb)
-      })
+      } else {
+        return cb(null, stat)
+      }
     }
+  })
+}
+
+Layerdrive.prototype.chown = function (name, uid, gid, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    self.stat(name, function (err, stat) {
+      if (err) return cb(err)
+      stat.uid = uid
+      stat.gid = gid
+      return cb(null, stat)
+    })
+  })
+}
+
+Layerdrive.prototype.chmod = function (name, mode, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    self.stat(name, function (err, stat) {
+      if (err) return cb(err)
+      stat.mode = mode
+      return cb(null, stat)
+    })
   })
 }
 
