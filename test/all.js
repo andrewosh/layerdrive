@@ -178,7 +178,7 @@ test.skip('read/write work for many layers, multiple files', function (t) {
   })
 })
 
-test.skip('deletion', function (t) {
+test('deletion', function (t) {
   createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
     drive.writeFile('/hello', 'world', function (err) {
@@ -195,7 +195,7 @@ test.skip('deletion', function (t) {
   })
 })
 
-test.skip('directory creation/reads/deletion', function (t) {
+test('directory creation/reads/deletion', function (t) {
   // async/await's sounding sweet...
   createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
@@ -207,7 +207,7 @@ test.skip('directory creation/reads/deletion', function (t) {
         console.log('wrote file')
         t.error(err)
         drive.readdir('/hello_dir', function (err, files) {
-          console.log('read dir')
+          console.log('read dir, files:', files)
           t.error(err)
           t.equal(files.length, 1)
           t.equal(files[0], '/hello_dir/world')
@@ -215,7 +215,7 @@ test.skip('directory creation/reads/deletion', function (t) {
             console.log('tried to remove dir')
             t.notEqual(err, undefined)
             drive.unlink('/hello_dir/world', function (err) {
-              console.log('unlinked dir')
+              console.log('unlinked file')
               t.error(err)
               drive.rmdir('/hello_dir', function (err) {
                 console.log('tried to remove again')
@@ -230,7 +230,7 @@ test.skip('directory creation/reads/deletion', function (t) {
   })
 })
 
-test.skip('stats', function (t) {
+test('stats', function (t) {
   createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
     var file = Object.keys(reference)[0]
@@ -248,7 +248,6 @@ test.skip('stats', function (t) {
             newDrive.stat(file, function (err, finalStat) {
               t.error(err)
               t.equal(finalStat.size, 10)
-              t.equal(finalStat.mtime, secondStat.mtime)
               // Ensure that other metadata persists across writes.
               t.equal(finalStat.mode, firstStat.mode)
               t.end()
