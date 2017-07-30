@@ -32,6 +32,7 @@
     "multiplex": "^6.7.0",
     "pump": "^1.0.2",
     "scoped-fs": "^1.1.2",
+    "stream-collector": "^1.0.1",
     "tar-fs": "^1.15.3",
     "tar-stream": "^1.5.4",
     "temp": "^0.8.3",

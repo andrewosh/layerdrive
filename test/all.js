@@ -158,7 +158,7 @@ test('read/write works for a single layer, single file, with streams', function 
   })
 })
 
-test('read/write works for a single layer, multiple files', function (t) {
+test.skip('read/write works for a single layer, multiple files', function (t) {
   createLayerdrive('alpine', 20, 10, 5, 100, function (err, drive, _, reference) {
     t.error(err)
     assertValidReadstreams(t, drive, reference, function (err) {
@@ -168,12 +168,94 @@ test('read/write works for a single layer, multiple files', function (t) {
   })
 })
 
-test('read/write work for many layers, multiple files', function (t) {
+test.skip('read/write work for many layers, multiple files', function (t) {
   createLayerdrive('alpine', 40, 500, 5, 10, function (err, drive, _, reference) {
     t.error(err)
     assertValidReads(t, drive, reference, function (err) {
       t.error(err)
       t.end()
+    })
+  })
+})
+
+test.skip('deletion', function (t) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    drive.writeFile('/hello', 'world', function (err) {
+      t.error(err)
+      drive.unlink('/hello', function (err) {
+        t.error(err)
+        drive.readFile('/hello', function (err, contents) {
+          console.log('after readFile')
+          t.notEqual(err, undefined)
+          t.end()
+        })
+      })
+    })
+  })
+})
+
+test.skip('directory creation/reads/deletion', function (t) {
+  // async/await's sounding sweet...
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    console.log('making directory as a first step')
+    drive.mkdir('/hello_dir', function (err) {
+      console.log('made dir')
+      t.error(err)
+      drive.writeFile('/hello_dir/world', 'goodbye', function (err) {
+        console.log('wrote file')
+        t.error(err)
+        drive.readdir('/hello_dir', function (err, files) {
+          console.log('read dir')
+          t.error(err)
+          t.equal(files.length, 1)
+          t.equal(files[0], '/hello_dir/world')
+          drive.rmdir('/hello_dir', function (err) {
+            console.log('tried to remove dir')
+            t.notEqual(err, undefined)
+            drive.unlink('/hello_dir/world', function (err) {
+              console.log('unlinked dir')
+              t.error(err)
+              drive.rmdir('/hello_dir', function (err) {
+                console.log('tried to remove again')
+                t.error(err)
+                t.end()
+              })
+            })
+          })
+        })
+      })
+    })
+  })
+})
+
+test.skip('stats', function (t) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    var file = Object.keys(reference)[0]
+    drive.stat(file, function (err, firstStat) {
+      t.error(err)
+      t.equal(firstStat.size, 100)
+      drive.writeFile(file, Buffer.alloc(10), function (err) {
+        t.error(err)
+        drive.stat(file, function (err, secondStat) {
+          t.error(err)
+          t.equal(secondStat.size, 10)
+          t.true(secondStat.mtime > firstStat.mtime)
+          drive.commit(function (err, newDrive) {
+            t.error(err)
+            newDrive.stat(file, function (err, finalStat) {
+              t.error(err)
+              t.equal(finalStat.size, 10)
+              t.equal(finalStat.mtime, secondStat.mtime)
+              // Ensure that other metadata persists across writes.
+              t.equal(finalStat.mode, firstStat.mode)
+              t.end()
+            })
+          })
+        })
+      })
     })
   })
 })

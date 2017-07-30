@@ -5,6 +5,7 @@ var events = require('events')
 var stream = require('stream')
 var inherits = require('inherits')
 
+var collect = require('stream-collector')
 var cuid = require('cuid')
 var tar = require('tar-stream')
 var tarFs = require('tar-fs')
@@ -49,7 +50,7 @@ function Layerdrive (key, driveFactory, opts) {
   this.metadata = null
   this.layers = []
   this.layerDrives = {}
-  this.copiedFiles = {}
+  this.lastModifiers = {}
 
   var self = this
   this.driveFactory = driveFactory
@@ -240,11 +241,16 @@ Layerdrive.prototype._writeMetadata = function (cb) {
 
 Layerdrive.prototype._getReadLayer = function (name, cb) {
   var self = this
-  if (this.copiedFiles[name]) {
-    return self.cow
+  console.log('getting read layer for:', name)
+  console.log('in _getReadLayer, lastModifier:', self.lastModifiers[name])
+  if (this.lastModifiers[name]) {
+    console.log('gonna be a cow...')
+    return cb(null, self.cow)
   }
   this.fileIndex.get(toIndexKey(name), function (err, index) {
     if (err) return cb(err)
+    console.log('index is:', index)
+    console.log('layers is:', self.layers)
     var layerKey = self.layers[index.readUInt8()].key
     return cb(null, self.layerDrives[layerKey])
   })
@@ -252,16 +258,13 @@ Layerdrive.prototype._getReadLayer = function (name, cb) {
 
 Layerdrive.prototype._copyOnWrite = function (readLayer, name, cb) {
   var self = this
-  if (this.copiedFiles[name]) return cb()
-  readLayer.exists(name, function (exists) {
-    if (!exists) return cb()
-    var readStream = readLayer.createReadStream(name)
-    var writeStream = self.cow.createWriteStream(name, { start: 0 })
-    return pump(readStream, writeStream, function (err) {
-      if (err) return cb(err)
-      self.copiedFiles[name] = true
-      return cb()
-    })
+  console.log('copying on write:', name)
+  if (this.lastModifiers[name]) return cb()
+  var readStream = readLayer.createReadStream(name)
+  var writeStream = self.cow.createWriteStream(name, { start: 0 })
+  return pump(readStream, writeStream, function (err) {
+    if (err) return cb(err)
+    return cb()
   })
 }
 
@@ -342,13 +345,21 @@ Layerdrive.prototype.createReadStream = function (name, opts) {
 }
 
 Layerdrive.prototype.readFile = function (name, opts, cb) {
+  if (typeof opts === 'function') {
+    cb = opts
+    opts = {}
+  }
+  opts = opts || {}
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
+    console.log('about to get read layer')
     self._getReadLayer(name, function (err, layer) {
+      console.log('got read layer:', layer.key)
       if (err) return cb(err)
       layer.readFile(name, opts, function (err, contents) {
-        return cb(err, contents)
+        if (err) return cb(err)
+        return cb(null, contents)
       })
     })
   })
@@ -360,14 +371,26 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
   proxy.cork()
   this.ready(function (err) {
     if (err) return proxy.emit('error', err)
-    if (self.copiedFiles[name]) return oncopy()
+    if (self.lastModifiers[name]) return oncopy()
     self._getReadLayer(name, function (err, layer) {
       if (err && err.notFound) return oncopy()
       if (err) return proxy.emit('error', err)
-      self._copyOnWrite(layer, name, oncopy)
+      if (layer.key) {
+        return self._copyOnWrite(layer, name, function (err) {
+          if (err) return proxy.emit('error', err)
+          oncopy(null, layer)
+        })
+      }
+      // The file has already been copied.
+      oncopy()
     })
-    function oncopy (err) {
+    function oncopy (err, readLayer) {
       if (err) return proxy.emit('error', err)
+      console.log('updating modifier for name:', name)
+      if (readLayer) {
+        self.lastModifiers[name] = readLayer.key
+        self._updateModifier(name)
+      }
       proxy.setWritable(self.cow.createWriteStream(name, opts))
       proxy.setReadable(false)
       proxy.uncork()
@@ -390,6 +413,107 @@ Layerdrive.prototype.writeFile = function (name, buf, opts, cb) {
     stream.on('finish', cb)
     stream.write(buf)
     stream.end()
+  })
+}
+
+Layerdrive.prototype.unlink = function (name, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    self.fileIndex.del(toIndexKey(name), function (err) {
+      if (err) return cb(err)
+      self.cow.exists(name, function (exist) {
+        if (exist) self.cow.unlink(name, cb)
+      })
+    })
+  })
+}
+
+Layerdrive.prototype.mkdir = function (name, opts, cb) {
+  if (typeof opts === 'function') {
+    cb = opts
+    opts = {}
+  }
+  opts = opts || {}
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    console.log('makin the dir')
+    self.cow.mkdir(name, function (err) {
+      console.log('made dir with err:', err)
+      if (err) return cb(err)
+      self._updateModifier(name, function (err) {
+        console.log('after updateModifier, err:', err)
+        return cb(err)
+      })
+    })
+  })
+}
+
+Layerdrive.prototype.rmdir = function (name, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    var gte = toIndexKey(name)
+    var lt = toIndexKey(p.join(name, '\xff'))
+    var stream = self.fileIndex.createReadStream({ gte: gte, lt: lt })
+    collect(stream, function (err, entries) {
+      if (err) return cb(err)
+      if (entries.length > 0) return cb(new Error('Directory is not empty.'))
+      self.cow.exists(name, function (exists) {
+        if (exists) return self.cow.rmdir(name, onremoved)
+        return onremoved()
+      })
+      function onremoved () {
+        self._updateModifier(name, cb)
+      }
+    })
+  })
+}
+
+Layerdrive.prototype.readdir = function (name, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    var gte = toIndexKey(name)
+    var lt = toIndexKey(p.join(name, '\xff'))
+    var stream = self.fileIndex.createReadStream({ gte: gte, lt: lt })
+    collect(stream, function (err, entries) {
+      if (err) return cb(err)
+      return cb(null, entries.map(function (entry) {
+        return fromIndexKey(entry.key)
+      }))
+    })
+  })
+}
+
+Layerdrive.prototype.stat = function (name, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    if (this.lastModifiers[name]) {
+      self.cow.stat(name, function (err, cowStat) {
+        if (err) return cb(err)
+        self.fileIndex.get(toIndexKey(name), function (err) {
+          if (err && err.notFound) return cb(null, cowStat)
+          if (err) return cb(err)
+          self._getReadLayer(name, function (err, layer) {
+            if (err) return cb(err)
+            layer.stat(name, function (err, stat) {
+              if (err) return cb(err)
+              stat.size = cowStat.size
+              stat.mtime = cowStat.mtime
+              return cb(null, stat)
+            })
+          })
+        })
+      })
+    } else {
+      self._getReadLayer(name, function (err, layer) {
+        if (err) return cb(err)
+        return layer.stat(name, cb)
+      })
+    }
   })
 }
 
@@ -422,6 +546,10 @@ function getTempStorage (storage, cb) {
 function toIndexKey (name) {
   var depth = name.split('/').length - 1
   return lexint.pack(depth, 'hex') + name
+}
+
+function fromIndexKey (key) {
+  return key.slice(key.indexOf('/'))
 }
 
 process.on('exit', function () {
