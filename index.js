@@ -299,6 +299,14 @@ Layerdrive.prototype._batchUpdateModifiers = function (files, cb) {
   this.fileIndex.batch(batch, cb)
 }
 
+Layerdrive.prototype._findFile = function (name, cb) {
+  var self = this
+  self.stat(name, function (err, stat, realName) {
+    if (err) return cb(err)
+    return cb(null, realName)
+  })
+}
+
 Layerdrive.prototype.commit = function (cb) {
   var self = this
   this.ready(function (err) {
@@ -347,11 +355,11 @@ Layerdrive.prototype.replicate = function (opts) {
 Layerdrive.prototype.createReadStream = function (name, opts) {
   var self = this
   var readStream = new stream.PassThrough(opts)
-  this.ready(function (err) {
+  this._findFile(name, function (err, realName) {
     if (err) return readStream.emit('error', err)
-    self._getReadLayer(name, function (err, layer) {
+    self._getReadLayer(realName, function (err, layer) {
       if (err) return readStream.emit('error', err)
-      pump(layer.createReadStream(name, opts), readStream)
+      pump(layer.createReadStream(realName, opts), readStream)
     })
   })
   return readStream
@@ -364,11 +372,11 @@ Layerdrive.prototype.readFile = function (name, opts, cb) {
   }
   opts = opts || {}
   var self = this
-  this.ready(function (err) {
+  this._findFile(name, function (err, realName) {
     if (err) return cb(err)
-    self._getReadLayer(name, function (err, layer) {
+    self._getReadLayer(realName, function (err, layer) {
       if (err) return cb(err)
-      layer.readFile(name, opts, function (err, contents) {
+      layer.readFile(realName, opts, function (err, contents) {
         if (err) return cb(err)
         return cb(null, contents)
       })
@@ -380,14 +388,14 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
   var self = this
   var proxy = duplexify()
   proxy.cork()
-  this.ready(function (err) {
+  this._findFile(function (err, realName) {
     if (err) return proxy.emit('error', err)
-    if (self.lastModifiers[name]) return oncopy()
-    self._getReadLayer(name, function (err, layer) {
+    if (self.lastModifiers[realName]) return oncopy()
+    self._getReadLayer(realName, function (err, layer) {
       if (err && err.notFound) return oncopy()
       if (err) return proxy.emit('error', err)
       if (layer.key) {
-        return self._copyOnWrite(layer, name, function (err) {
+        return self._copyOnWrite(layer, realName, function (err) {
           if (err) return proxy.emit('error', err)
           oncopy(null, layer)
         })
@@ -397,9 +405,9 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
     })
     function oncopy (err, readLayer) {
       if (err) return proxy.emit('error', err)
-      self._updateFileIndex(name, function (err) {
+      self._updateFileIndex(realName, function (err) {
         if (err) return proxy.emit('error', err)
-        proxy.setWritable(self.cow.createWriteStream(name, opts))
+        proxy.setWritable(self.cow.createWriteStream(realName, opts))
         proxy.setReadable(false)
         proxy.uncork()
       })
@@ -415,9 +423,9 @@ Layerdrive.prototype.writeFile = function (name, buf, opts, cb) {
   if (typeof buf === 'string') buf = Buffer.from(buf, opts.encoding || 'utf-8')
 
   var self = this
-  this.ready(function (err) {
+  this._findFile(name, function (err, realName) {
     if (err) return cb(err)
-    var stream = self.createWriteStream(name, opts)
+    var stream = self.createWriteStream(realName, opts)
     stream.on('error', cb)
     stream.on('finish', cb)
     stream.write(buf)
@@ -429,10 +437,6 @@ Layerdrive.prototype.unlink = function (name, cb) {
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
-    self.stat(name, function (err, stat) {
-      if (err) return cb(err)
-      if stat.isSymbolicLink()
-    })
     if (self.statCache[name]) delete self.statCache[name]
     self.fileIndex.del(toIndexKey(name), function (err) {
       if (err) return cb(err)
@@ -463,17 +467,17 @@ Layerdrive.prototype.mkdir = function (name, opts, cb) {
 
 Layerdrive.prototype.rmdir = function (name, cb) {
   var self = this
-  this.ready(function (err) {
+  this._findFile(name, function (err, realName) {
     if (err) return cb(err)
-    self.readdir(name, function (err, files) {
+    self.readdir(realName, function (err, files) {
       if (err) return cb(err)
       if (files.length > 0) return cb(new Error('Directory is not empty.'))
-      self.cow.exists(name, function (exists) {
-        if (exists) return self.cow.rmdir(name, onremoved)
+      self.cow.exists(realName, function (exists) {
+        if (exists) return self.cow.rmdir(realName, onremoved)
         return onremoved()
       })
       function onremoved () {
-        self._updateFileIndex(name, cb)
+        self._updateFileIndex(realName, cb)
       }
     })
   })
@@ -481,9 +485,9 @@ Layerdrive.prototype.rmdir = function (name, cb) {
 
 Layerdrive.prototype.readdir = function (name, cb) {
   var self = this
-  this.ready(function (err) {
+  this._findFile(name, function (err, realName) {
     if (err) return cb(err)
-    var resolved = p.resolve(name)
+    var resolved = p.resolve(realName)
     if (!/\/$/.test(resolved)) resolved += '/'
     var gte = toIndexKey(resolved)
     var lt = toIndexKey(p.join(resolved, '\xff'))
@@ -509,15 +513,17 @@ Layerdrive.prototype.stat = function (name, cb) {
     })
     function onstat (err, stat) {
       self.statCache[name] = stat
+      // If this is a symlink, follow it now.
+      if (stat.linkname) return self.stat(stat.linkname, cb)
       if (self.lastModifiers[name]) {
         self.cow.stat(name, function (err, cowStat) {
           if (err) return cb(err)
           stat.size = cowStat.size
           stat.mtime = cowStat.mtime
-          return cb(null, stat)
+          return cb(null, stat, name)
         })
       } else {
-        return cb(null, stat)
+        return cb(null, stat, name)
       }
     }
   })
@@ -525,26 +531,20 @@ Layerdrive.prototype.stat = function (name, cb) {
 
 Layerdrive.prototype.chown = function (name, uid, gid, cb) {
   var self = this
-  this.ready(function (err) {
+  this.stat(name, function (err, stat) {
     if (err) return cb(err)
-    self.stat(name, function (err, stat) {
-      if (err) return cb(err)
-      stat.uid = uid
-      stat.gid = gid
-      return cb(null, stat)
-    })
+    stat.uid = uid
+    stat.gid = gid
+    return cb(null, stat)
   })
 }
 
 Layerdrive.prototype.chmod = function (name, mode, cb) {
   var self = this
-  this.ready(function (err) {
+  this.stat(name, function (err, stat) {
     if (err) return cb(err)
-    self.stat(name, function (err, stat) {
-      if (err) return cb(err)
-      stat.mode = mode
-      return cb(null, stat)
-    })
+    stat.mode = mode
+    return cb(null, stat)
   })
 }
 
@@ -561,7 +561,7 @@ Layerdrive.prototype.symlink = function (src, dest, cb) {
         gid: 0,
         mode: DEFAULT_FMODE | Stat.IFLNK
       }
-      self.tree.put(dest, st, cb)
+      self.statCache[dest] = st
     })
   })
 }
@@ -581,12 +581,8 @@ Layerdrive.prototype.link = function (src, dest, cb) {
           gid: 0,
           mode: DEFAULT_FMODE | Stat.IFLNK
         }
-        self.tree.put(dest, st, function (err) {
-          if (err) return cb(err)
-          srcStat.nlink++
-          return cb()
-        })
-
+        self.statCache[dest] = st
+        srcStat.nlink++
       })
     })
   })
