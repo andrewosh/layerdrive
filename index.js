@@ -215,10 +215,14 @@ Layerdrive.prototype._readMetadata = function (cb) {
 }
 
 Layerdrive.prototype._updateStat = function (driveStat, metaStat) {
-  if (metaStat.uid && (metaStat.uid !== driveStat.uid)) { driveStat.uid = metaStat.uid }
-  if (metaStat.gid && (metaStat.gid !== driveStat.gid)) { driveStat.gid = metaStat.gid }
-  if (metaStat.mode && (metaStat.mode !== driveStat.mode)) { driveStat.mode = metaStat.mode }
-  if (metaStat.linkname && (metaStat.linkname !== driveStat.linkname)) { driveStat.linkname = metaStat.linkname }
+  if (metaStat.uid && (metaStat.uid !== driveStat.uid))
+    driveStat.uid = metaStat.uid
+  if (metaStat.gid && (metaStat.gid !== driveStat.gid))
+    driveStat.gid = metaStat.gid
+  if (metaStat.mode && (metaStat.mode !== driveStat.mode))
+    driveStat.mode = metaStat.mode
+  if (metaStat.linkname && (metaStat.linkname !== driveStat.linkname))
+    driveStat.linkname = metaStat.linkname
 }
 
 Layerdrive.prototype._writeUpdatedStats = function (cb) {
@@ -235,20 +239,14 @@ Layerdrive.prototype._writeUpdatedStats = function (cb) {
       name = stats.pop()
       self.layerDrive.readdir('/', function (err, list) {
         if (err) return cb(err)
-        console.log('list:', list)
         self.layerDrive.stat(name, function (err, driveStat) {
-          console.log('statting the name, err:', err)
           if (err) return cb(err)
-          console.log('driveStat:', driveStat)
           var metaStat = self.statCache[name]
-          console.log('metaStat:', metaStat)
           self._updateStat(driveStat, metaStat)
-          console.log('resulting stat:', driveStat)
           self.layerDrive.tree.put(name, driveStat, function (err) {
             if (err) return cb(err)
             self.layerDrive.stat(name, function (err, stat) {
               if (err) return cb(err)
-              console.log('RESULTING METADATA:', stat)
             })
             if (stats.length !== 0) return writeNextStat()
             return cb()
@@ -354,12 +352,9 @@ Layerdrive.prototype.commit = function (cb) {
         self._batchUpdateModifiers(files, updateDrives)
         function updateDrives (err) {
           if (err) return cb(err)
-          console.log('about to call _writeUpdatedStats')
           self._writeUpdatedStats(function (err) {
             if (err) return cb(err)
-            console.log('about to call _writeMetadata')
             self._writeMetadata(function (err) {
-              console.log('_writeMetadata error:', err)
               if (err) return cb(err)
               return cb(null,
                 Layerdrive(self.metadataDrive.key, self.driveFactory, self.opts))
@@ -368,7 +363,6 @@ Layerdrive.prototype.commit = function (cb) {
         }
       })
       status.on('file imported', function (entry) {
-        console.log('YOU IMPORTED:', entry.path)
         var relativePath = '/' + p.relative(self.cow.base, entry.path)
         files.push(relativePath)
       })
@@ -538,19 +532,19 @@ Layerdrive.prototype.stat = function (name, cb) {
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
+    var stat = self.statCache[name]
     self._getReadLayer(name, function (err, layer, index) {
       if (err) return onstat(err)
       if (index === self.layers.length) return onstat()
-      if (self.statCache[name]) return onstat(null, self.statCache[name])
       return layer.stat(name, onstat)
     })
-    function onstat (err, stat) {
-      if (err && err.notFound) return cb(null, null, name)
+    function onstat (err, layerStat) {
+      if (stat && stat.linkname) return self.stat(stat.linkname, cb)
+      if (err && err.notFound) return cb(null, stat, name)
       if (err) return cb(err)
       // If this is a symlink, follow it now.
-      if (stat && stat.linkname) return self.stat(stat.linkname, cb)
-      if (!stat) {
-        stat = {}
+      if (!layerStat) {
+        stat = stat || {}
         self.cow.stat(name, function (err, cowStat) {
           if (err) return cb(err)
           stat.size = cowStat.size
@@ -559,6 +553,7 @@ Layerdrive.prototype.stat = function (name, cb) {
           return cb(null, stat, name)
         })
       } else {
+        stat = stat || layerStat
         self.statCache[name] = stat
         return cb(null, stat, name)
       }
@@ -575,7 +570,7 @@ Layerdrive.prototype.chown = function (name, uid, gid, cb) {
       if (layer.key) return self._copyOnWrite(layer, realName, updateStat)
       return updateStat()
     })
-    function updateStat (err) {
+    function updateStat (err) { 
       if (err) return cb(err)
       stat.uid = uid
       stat.gid = gid
@@ -593,7 +588,7 @@ Layerdrive.prototype.chmod = function (name, mode, cb) {
       if (layer.key) return self._copyOnWrite(layer, realName, updateStat)
       return updateStat()
     })
-    function updateStat (err) {
+    function updateStat (err) { 
       if (err) return cb(err)
       stat.mode = mode
       return cb(null, stat)
@@ -615,6 +610,7 @@ Layerdrive.prototype.symlink = function (src, dest, cb) {
         mode: DEFAULT_FMODE | Stat.IFLNK
       }
       self.statCache[dest] = st
+      return cb()
     })
   })
 }
@@ -636,6 +632,7 @@ Layerdrive.prototype.link = function (src, dest, cb) {
         }
         self.statCache[dest] = st
         srcStat.nlink++
+        return cb()
       })
     })
   })

@@ -238,20 +238,19 @@ test('stats', function (t) {
     var file = Object.keys(reference)[0]
     drive.stat(file, function (err, firstStat) {
       t.error(err)
-      console.log('firstStat', firstStat)
+      var firstTime = firstStat.mtime
       t.equal(firstStat.size, 100)
       drive.writeFile(file, Buffer.alloc(10), function (err) {
         t.error(err)
         drive.stat(file, function (err, secondStat) {
           t.error(err)
           t.equal(secondStat.size, 10)
-          t.true(secondStat.mtime > firstStat.mtime)
+          t.true(secondStat.mtime > firstTime)
           drive.commit(function (err, newDrive) {
             t.error(err)
             newDrive.stat(file, function (err, finalStat) {
               t.error(err)
               t.equal(finalStat.size, 10)
-              console.log('finalStat:', finalStat)
               // Ensure that other metadata persists across writes.
               t.equal(finalStat.mode, firstStat.mode)
               t.end()
@@ -274,18 +273,33 @@ test('chown/chmod', function (t) {
       drive.chmod(file, 511, function (err, stat) {
         t.error(err)
         t.equal(stat.mode, 511)
-        console.log('committing stat:', stat)
         drive.commit(function (err, newDrive) {
-          console.log('after commit, err:', err)
           t.error(err)
           newDrive.stat(file, function (err, stat) {
-            console.log('new stat:', stat)
             t.error(err)
             t.equal(stat.uid, 10)
             t.equal(stat.gid, 11)
             t.equal(stat.mode, 511)
             t.end()
           })
+        })
+      })
+    })
+  })
+})
+
+test('symlinking, equal stats', function (t) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    var file = Object.keys(reference)[0]
+    drive.symlink(file, '/some_link', function (err) {
+      t.error(err)
+      drive.stat(file, function (err, fileStat) {
+        t.error(err)
+        drive.stat('/some_link', function (err, linkStat) {
+          t.error(err)
+          t.deepEqual(linkStat, fileStat)
+          t.end()
         })
       })
     })
