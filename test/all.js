@@ -277,7 +277,7 @@ test('chown/chmod', function (t) {
           newDrive.stat(file, function (err, stat) {
             t.error(err)
             t.equal(stat.uid, 10)
-            t.equal(stat.gid, 10)
+            t.equal(stat.gid, 11)
             t.equal(stat.mode, 511)
             t.end()
           })
