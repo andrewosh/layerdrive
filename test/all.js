@@ -159,7 +159,17 @@ test('read/write works for a single layer, single file, with streams', function 
 })
 
 test('read/write works for a single layer, multiple files', function (t) {
-  createLayerdrive('alpine', 20, 10, 5, 100, function (err, drive, _, reference) {
+  createLayerdrive('alpine', 1, 10, 5, 100, function (err, drive, _, reference) {
+    t.error(err)
+    assertValidReadstreams(t, drive, reference, function (err) {
+      t.error(err)
+      t.end()
+    })
+  })
+})
+
+test('read/write works for multiple layers, single file', function (t) {
+  createLayerdrive('alpine', 2, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
     assertValidReadstreams(t, drive, reference, function (err) {
       t.error(err)
@@ -169,7 +179,7 @@ test('read/write works for a single layer, multiple files', function (t) {
 })
 
 test('read/write work for many layers, multiple files', function (t) {
-  createLayerdrive('alpine', 40, 500, 100, 10, function (err, drive, _, reference) {
+  createLayerdrive('alpine', 7, 500, 100, 10, function (err, drive, _, reference) {
     t.error(err)
     assertValidReads(t, drive, reference, function (err) {
       t.error(err)
