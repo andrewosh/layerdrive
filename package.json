@@ -1,6 +1,6 @@
 {
   "name": "layerdrive",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A union filesystem based on Hyperdrive",
   "main": "index.js",
   "scripts": {
