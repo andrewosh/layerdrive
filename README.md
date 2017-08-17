@@ -62,7 +62,7 @@ As of now, these operations are performed directly on cached stat objects, and a
 #### Creating Hyperdrives
 Since a layerdrive needs to create a hyperdrive for each of its layers, it must be provided with a `driveFactory` function that will instantiate the drive with suitable storage, and handle replication.
 
-_Note: These two features (storage and replication) are not handled directly by layerdrive._
+_Note: These two features (storage and replication) are not handled directly by Layerdrive._
 
 ### API
 TODO: API description
