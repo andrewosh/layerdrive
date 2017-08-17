@@ -1,6 +1,11 @@
 ## layerdrive
 Layerdrive is a union filesystem where each layer can be independently distributed as a [Hyperdrive](https://www.github.com/mafintosh/hyperdrive). 
 
+This project is intended primarily as a format for peer-to-peer distributable container images. It's designed with the following properties in mind:
+1. Each layer of an image can be hosted independently by different peers.
+2. Images that are composed of small additions on top of popular base images can be created/synced quickly, without copying unnecessary layers.
+3. Resolving image metadata only requires syncing a single, small archive -- this enables fast container booting.
+
 ### Install
 (WIP: this isn't live yet)
 ```
