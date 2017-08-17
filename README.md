@@ -32,7 +32,9 @@ By default, all layer archives are synced in sparse mode.
 #### Copy-on-Write Layer
 Before a layerdrive is committed, all pending changes are written to a temporary directory. Any files already in the layerdrive (having been modified in one of the layer archives) will be copied to the temporary directory whenever they're first modified.
 
-On commit, a new layer archive is created out of the temporary directory, and a metadata archive that references this new layer is created. Currently this is a finalizing operation -- no additional operations can be performed on the layerdrive after the commit. Once committed, the layerdrive's key is set to the new metadata archive's key.
+On commit, a new layer archive is created out of the temporary directory, and a metadata archive that references this new layer is created. Once committed, the layerdrive's key is set to the new metadata archive's key.
+
+_Note: As of now, committing is finalizing -- no additional operations can be performed on the layerdrive post-commit_
 
 #### Metadata Archive
 The metadata archive is lightweight -- it contains two files of interest:
