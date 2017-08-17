@@ -5,6 +5,7 @@ This project is intended primarily as a format for peer-to-peer distributable co
 1. Each layer of an image can be hosted independently by different peers.
 2. Images that are composed of small additions on top of popular base images can be created/synced quickly, without copying unnecessary layers.
 3. Resolving image metadata only requires syncing a single, small archive -- this enables fast container booting.
+4. Cross-image deduplication works by default: different images with the same base layers will not need to re-sync those layers.
 
 ### Install
 (WIP: this isn't live yet)
