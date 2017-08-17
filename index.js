@@ -215,14 +215,10 @@ Layerdrive.prototype._readMetadata = function (cb) {
 }
 
 Layerdrive.prototype._updateStat = function (driveStat, metaStat) {
-  if (metaStat.uid && (metaStat.uid !== driveStat.uid))
-    driveStat.uid = metaStat.uid
-  if (metaStat.gid && (metaStat.gid !== driveStat.gid))
-    driveStat.gid = metaStat.gid
-  if (metaStat.mode && (metaStat.mode !== driveStat.mode))
-    driveStat.mode = metaStat.mode
-  if (metaStat.linkname && (metaStat.linkname !== driveStat.linkname))
-    driveStat.linkname = metaStat.linkname
+  if (metaStat.uid && (metaStat.uid !== driveStat.uid)) { driveStat.uid = metaStat.uid }
+  if (metaStat.gid && (metaStat.gid !== driveStat.gid)) { driveStat.gid = metaStat.gid }
+  if (metaStat.mode && (metaStat.mode !== driveStat.mode)) { driveStat.mode = metaStat.mode }
+  if (metaStat.linkname && (metaStat.linkname !== driveStat.linkname)) { driveStat.linkname = metaStat.linkname }
 }
 
 Layerdrive.prototype._writeUpdatedStats = function (cb) {
@@ -570,7 +566,7 @@ Layerdrive.prototype.chown = function (name, uid, gid, cb) {
       if (layer.key) return self._copyOnWrite(layer, realName, updateStat)
       return updateStat()
     })
-    function updateStat (err) { 
+    function updateStat (err) {
       if (err) return cb(err)
       stat.uid = uid
       stat.gid = gid
@@ -588,7 +584,7 @@ Layerdrive.prototype.chmod = function (name, mode, cb) {
       if (layer.key) return self._copyOnWrite(layer, realName, updateStat)
       return updateStat()
     })
-    function updateStat (err) { 
+    function updateStat (err) {
       if (err) return cb(err)
       stat.mode = mode
       return cb(null, stat)
@@ -635,6 +631,23 @@ Layerdrive.prototype.link = function (src, dest, cb) {
         return cb()
       })
     })
+  })
+}
+
+Layerdrive.prototype.mknod = function (path, mode, dev, cb) {
+  this.ready(function (err) {
+    if (err) return cb(err)
+    return cb()
+    // TODO: support mknod
+  })
+}
+
+Layerdrive.prototype.updateStat = function (path, stat, cb) {
+  var self = this
+  this.ready(function (err) {
+    if (err) return cb(err)
+    self.statCache[path] = stat
+    return cb()
   })
 }
 
