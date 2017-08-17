@@ -51,7 +51,7 @@ A read operation consults the filesystem index for the appropriate layer to read
 #### Writes
 Writes are slightly trickier: If a file exists in one of the read layers, it must first be copied to the writable layer (the temporary directory) in its entirety.
 
-Note: The writable layer is currently a temporary directory in order to support random-access writes.
+_Note: The writable layer is currently a temporary directory in order to support random-access writes._
 
 Deletions are straightforward: The filesystem index is updated to set the last-modifier of the deleted file to the latest layer, and that file is unlinked.
 
@@ -59,7 +59,9 @@ Deletions are straightforward: The filesystem index is updated to set the last-m
 As of now, these operations performed directly on cached stat objects, and are written to the most recent layer archive's append-tree on commit. Ultimately, these changes might be merged into Hyperdrive upstream.
 
 #### Creating Hyperdrives
-Since a layerdrive needs to create a hyperdrive for each of its layers, it must be provided with a `driveFactory` function that will instantiate the drive with suitable storage, and handle replication. These two features are not handled directly by layerdrive.
+Since a layerdrive needs to create a hyperdrive for each of its layers, it must be provided with a `driveFactory` function that will instantiate the drive with suitable storage, and handle replication.
+
+_Note: These two features (storage and replication) are not handled directly by layerdrive._
 
 ### API
 TODO: API description
