@@ -21,11 +21,11 @@ TODO: this should be an example.
 
 ### Internals
 A layerdrive consists of three components:
-1. A single metadata archive.
-2. N layer archives.
+1. A single metadata hyperdrive.
+2. N layer hyperdrives.
 3. A single copy-on-write layer, which is currently a temporary directory.
 
-The metadata archive stores a filesystem index that enables fast lookup of file modifications, to determine which layer to read from for a given file. All writes are buffered in a copy-on-write layer, which is reified into an additional layer archive when the layerdrive is committed.
+The metadata drive stores a filesystem index that enables fast lookup of file modifications, to determine which layer to read from for a given file. All writes are buffered in a copy-on-write layer, which is reified into an additional layer hyperdrive when the layerdrive is committed.
 
 By default, all layer archives are synced in sparse mode.
 
