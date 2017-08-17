@@ -57,7 +57,7 @@ _Note: The writable layer is currently a temporary directory in order to support
 Deletions are straightforward: The filesystem index is updated to set the last-modifier of the deleted file to the latest layer, and that file is unlinked.
 
 #### Stat Updates (symlinking, chmod, chown...)
-As of now, these operations performed directly on cached stat objects, and are written to the most recent layer archive's append-tree on commit. Ultimately, these changes might be merged into Hyperdrive upstream.
+As of now, these operations are performed directly on cached stat objects, and are written to the most recent layer archive's append-tree on commit. Ultimately, these changes might be merged into Hyperdrive upstream.
 
 #### Creating Hyperdrives
 Since a layerdrive needs to create a hyperdrive for each of its layers, it must be provided with a `driveFactory` function that will instantiate the drive with suitable storage, and handle replication.
