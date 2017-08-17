@@ -29,19 +29,19 @@ The metadata archive stores a filesystem index that enables fast lookup of file 
 
 By default, all layer archives are synced in sparse mode.
 
-#### Copy-on-write layer
+#### Copy-on-Write Layer
 Before a layerdrive is committed, all pending changes are written to a temporary directory. Any files already in the layerdrive (having been modified in one of the layer archives) will be copied to the temporary directory whenever they're first modified.
 
 On commit, a new layer archive is created out of the temporary directory, and a metadata archive that references this new layer is created. Currently this is a finalizing operation -- no additional operations can be performed on the layerdrive after the commit. Once committed, the layerdrive's key is set to the new metadata archive's key.
 
-#### Metadata archive
+#### Metadata Archive
 The metadata archive is lightweight -- it contains two files of interest:
 1. `layerdrive.json`: A JSON file of metadata, with the most important record being the ordered list of N layer hyperdrive keys. By referencing each layer by its list index, the filesystem index can be kept small.
 2. `layerdrive.db.tar`: A tarball'd LevelDB database containing a filesystem index. Each KV-pair is a mapping from filename to the last layer that modified it.
 
 Before any operations are performed on a layerdrive, the entire metadata archive must be synced (but none of the layer archives need to be synced!), and the filesystem index must be untar'd.
 
-#### Layer archives
+#### Layer Archives
 Each layer archive is...well...just the hyperdrive of that copy-on-write layer's changes. It's only useful when referenced by a metadata archive. Importantly, if a layer only modifies a few files, then the resulting layer archive will be very small. Not much more to this component.
 
 #### Reads
@@ -50,7 +50,7 @@ A read operation consults the filesystem index for the appropriate layer to read
 #### Writes
 Writes are slightly trickier: If a file exists in one of the read layers, it must first be copied to the writable layer (the temporary directory) in its entirety.
 
-#### Stat updates (symlinking, chmod, chown...)
+#### Stat Updates (symlinking, chmod, chown...)
 As of now, these operations performed directly on cached stat objects, and are written to the most recent layer archive's append-tree on commit. Ultimately, these changes might be merged into Hyperdrive upstream.
 
 Note: The writable layer is currently a temporary directory in order to support random-access writes.
