@@ -8,7 +8,6 @@ This project is intended primarily as a format for peer-to-peer distributable co
 4. Cross-image deduplication works by default: different images with the same base layers will not need to re-sync those layers.
 
 ### Install
-(WIP: this isn't live yet)
 ```
 npm i layerdrive
 ```
