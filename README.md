@@ -8,7 +8,6 @@ This project is intended primarily as a format for peer-to-peer distributable co
 4. Cross-image deduplication works by default: different images with the same base layers will not need to re-sync those layers.
 
 ### Install
-(WIP: this isn't live yet)
 ```
 npm i layerdrive
 ```
@@ -33,7 +32,9 @@ By default, all layer archives are synced in sparse mode.
 #### Copy-on-Write Layer
 Before a layerdrive is committed, all pending changes are written to a temporary directory. Any files already in the layerdrive (having been modified in one of the layer archives) will be copied to the temporary directory whenever they're first modified.
 
-On commit, a new layer archive is created out of the temporary directory, and a metadata archive that references this new layer is created. Currently this is a finalizing operation -- no additional operations can be performed on the layerdrive after the commit. Once committed, the layerdrive's key is set to the new metadata archive's key.
+On commit, a new layer archive is created out of the temporary directory, and a metadata archive that references this new layer is created. Once committed, the layerdrive's key is set to the new metadata archive's key.
+
+_Note: As of now, committing is finalizing -- no additional operations can be performed on the layerdrive post-commit_
 
 #### Metadata Archive
 The metadata archive is lightweight -- it contains two files of interest:
@@ -56,12 +57,12 @@ _Note: The writable layer is currently a temporary directory in order to support
 Deletions are straightforward: The filesystem index is updated to set the last-modifier of the deleted file to the latest layer, and that file is unlinked.
 
 #### Stat Updates (symlinking, chmod, chown...)
-As of now, these operations performed directly on cached stat objects, and are written to the most recent layer archive's append-tree on commit. Ultimately, these changes might be merged into Hyperdrive upstream.
+As of now, these operations are performed directly on cached stat objects, and are written to the most recent layer archive's append-tree on commit. Ultimately, these changes might be merged into Hyperdrive upstream.
 
 #### Creating Hyperdrives
 Since a layerdrive needs to create a hyperdrive for each of its layers, it must be provided with a `driveFactory` function that will instantiate the drive with suitable storage, and handle replication.
 
-_Note: These two features (storage and replication) are not handled directly by layerdrive._
+_Note: These two features (storage and replication) are not handled directly by Layerdrive._
 
 ### API
 TODO: API description
