@@ -19,6 +19,8 @@ var hyperImport = require('hyperdrive-import-files')
 var mux = require('multiplex')
 var ScopedFs = require('scoped-fs')
 
+var debug = require('debug')('layerdrive')
+
 // TODO: merge symlink/link/chmod/chown upstream?
 var Stat = require('hyperdrive/lib/stat')
 var DEFAULT_FMODE = (4 | 2 | 0) << 6 | ((4 | 0 | 0) << 3) | (4 | 0 | 0) // rw-r--r--
@@ -456,6 +458,27 @@ Layerdrive.prototype.writeFile = function (name, buf, opts, cb) {
   })
 }
 
+Layerdrive.prototype.append = function (name, buf, opts, cb) {
+  if (typeof opts === 'function') return this.append(name, buf, null, opts)
+  if (typeof opts === 'string') opts = {encoding: opts}
+  if (!opts) opts = {}
+  if (typeof buf === 'string') buf = Buffer.from(buf, opts.encoding || 'utf-8')
+
+  var self = this
+  this.stat(name, function (err, stat, realName) {
+    if (err) return cb(err)
+    if (stat) {
+      opts.start = stat.size
+      opts.flags = 'r+'
+    }
+    var stream = self.createWriteStream(realName, opts)
+    stream.on('error', cb)
+    stream.on('finish', cb)
+    stream.write(buf)
+    stream.end()
+  })
+}
+
 Layerdrive.prototype.unlink = function (name, cb) {
   var self = this
   this.ready(function (err) {
@@ -525,6 +548,7 @@ Layerdrive.prototype.readdir = function (name, cb) {
 }
 
 Layerdrive.prototype.stat = function (name, cb) {
+  debug('stat', name)
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)

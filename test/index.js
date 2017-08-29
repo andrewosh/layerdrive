@@ -5,6 +5,8 @@ var randomstring = require('randomstring')
 var randomItem = require('random-item')
 var rimraf = require('rimraf')
 
+var debug = require('debug')('layerdrive')
+
 var Hyperdrive = require('hyperdrive')
 var Layerdrive = require('..')
 
@@ -52,6 +54,7 @@ function driveFactory (storage, key, opts) {
 }
 
 function createLayerdrive (base, numLayers, numFiles, opsPerLayer, fileLength, cb) {
+  debug('createLayerdrive', base, numLayers, numFiles, opsPerLayer, fileLength)
   var files = []
   for (var i = 0; i < numFiles; i++) {
     files.push('/' + randomstring.generate(10))

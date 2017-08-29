@@ -99,6 +99,37 @@ test('deletion', function (t) {
   })
 })
 
+test('appending, existing file', function (t) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    drive.writeFile('/hello', 'world', function (err) {
+      t.error(err)
+      drive.append('/hello', 'blah', function (err) {
+        t.error(err)
+        drive.readFile('/hello', 'utf-8', function (err, contents) {
+          t.error(err)
+          t.equal(contents, 'worldblah')
+          t.end()
+        })
+      })
+    })
+  })
+})
+
+test('appending, new file', function (t) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    drive.append('/hello', '', function (err) {
+      t.error(err)
+      drive.stat('/hello', function (err, stat) {
+        t.error(err)
+        t.equal(stat.size, 0)
+        t.end()
+      })
+    })
+  })
+})
+
 test('directory creation/reads/deletion', function (t) {
   // async/await's sounding sweet...
   createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
