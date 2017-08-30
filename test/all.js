@@ -76,9 +76,36 @@ test('read/write works for multiple layers, single file', function (t) {
 test('read/write work for many layers, multiple files', function (t) {
   createLayerdrive('alpine', 7, 500, 100, 10, function (err, drive, _, reference) {
     t.error(err)
-    assertValidReads(t, drive, reference, function (err) {
+    assertValidReadstreams(t, drive, reference, function (err) {
       t.error(err)
       t.end()
+    })
+  })
+})
+
+test('moving', function (t) {
+  createLayerdrive('alpine', 7, 500, 100, 10, function (err, drive, _, reference) {
+    t.error(err)
+    drive.writeFile('/hello', 'world', function (err) {
+      t.error(err)
+      drive.chmod('/hello', '655', function (err) {
+        t.error(err)
+        drive.mv('/hello', '/goodbye', function (err) {
+          t.error(err)
+          drive.readFile('/goodbye', 'utf-8', function (err, contents) {
+            t.error(err)
+            t.equal(contents, 'world')
+            drive.stat('/goodbye', function (err, stat) {
+              t.error(err)
+              stat.mode = '655'
+              drive.stat('/hello', function (err) {
+                t.notEqual(err, undefined)
+                t.end()
+              })
+            })
+          })
+        })
+      })
     })
   })
 })

@@ -20,7 +20,7 @@ var mux = require('multiplex')
 var spy = require('through2-spy')
 var ScopedFs = require('scoped-fs')
 
-var debug = require('debug')('layerdrive')
+var log = require('debug')('layerdrive')
 
 // TODO: merge symlink/link/chmod/chown upstream?
 var Stat = require('hyperdrive/lib/stat')
@@ -301,10 +301,12 @@ Layerdrive.prototype._getReadLayer = function (name, cb) {
   })
 }
 
-Layerdrive.prototype._copyOnWrite = function (readLayer, name, cb) {
+Layerdrive.prototype._copyOnWrite = function (readLayer, src, dest, cb) {
+  if (typeof dest === 'function') return this._copyOnWrite(readLayer, src, null, dest)
   var self = this
-  var readStream = readLayer.createReadStream(name)
-  var writeStream = self.cow.createWriteStream(name, { start: 0 })
+  dest = dest || src
+  var readStream = readLayer.createReadStream(src)
+  var writeStream = self.cow.createWriteStream(dest, { start: 0 })
   return pump(readStream, writeStream, function (err) {
     if (err) return cb(err)
     return cb()
@@ -380,6 +382,7 @@ Layerdrive.prototype.replicate = function (opts) {
 }
 
 Layerdrive.prototype.createReadStream = function (name, opts) {
+  log('createReadStream', name, opts)
   var self = this
   var readStream = new stream.PassThrough(opts)
   this._findFile(name, function (err, realName) {
@@ -451,7 +454,8 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
         if (err) return proxy.emit('error', err)
         proxy.setWritable(dataCounter)
         proxy.setReadable(false)
-        dataCounter.pipe(self.cow.createWriteStream(realName, opts))
+        var writeStream = self.cow.createWriteStream(realName, opts)
+        dataCounter.pipe(writeStream)
         stat.size = opts.start || 0
         proxy.uncork()
       })
@@ -571,7 +575,7 @@ Layerdrive.prototype.readdir = function (name, cb) {
 }
 
 Layerdrive.prototype.stat = function (name, cb) {
-  debug('stat', name)
+  log('stat', name)
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
@@ -587,8 +591,29 @@ Layerdrive.prototype.stat = function (name, cb) {
       if (err) return cb(err)
       stat = stat || layerStat
       self.statCache[name] = stat
+      log('stat:', stat)
       return cb(null, stat, name)
     }
+  })
+}
+
+Layerdrive.prototype.mv = function (src, dest, cb) {
+  var self = this
+  this.stat(src, function (err, stat, realName) {
+    if (err) return cb(err)
+    self._getReadLayer(realName, function (err, layer, index) {
+      if (err) return cb(err)
+      self._copyOnWrite(layer, src, dest, function (err) {
+        if (err) return cb(err)
+        self._updateFileIndex(dest, function (err) {
+          if (err) return cb(err)
+          self.statCache[dest] = self.statCache[src]
+          self.unlink(src, function (err) {
+            return cb(err)
+          })
+        })
+      })
+    })
   })
 }
 
