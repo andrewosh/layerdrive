@@ -508,13 +508,22 @@ Layerdrive.prototype.append = function (name, buf, opts, cb) {
 
 Layerdrive.prototype.unlink = function (name, cb) {
   var self = this
+  console.log('unlinking:', name)
   this.ready(function (err) {
     if (err) return cb(err)
+    console.log('in statcache:', self.statCache[name])
     if (self.statCache[name]) delete self.statCache[name]
+    console.log('after deletion')
     self.fileIndex.del(toIndexKey(name), function (err) {
+      console.log('fileIndex error:', err)
       if (err) return cb(err)
       self.cow.exists(name, function (exist) {
-        if (exist) self.cow.unlink(name, cb)
+        console.log('exists:', exist)
+        if (exist) {
+          self.cow.unlink(name, cb)
+        } else {
+          return cb()
+        }
       })
     })
   })
@@ -574,7 +583,8 @@ Layerdrive.prototype.readdir = function (name, cb) {
   })
 }
 
-Layerdrive.prototype.stat = function (name, cb) {
+Layerdrive.prototype.stat = function (name, opts, cb) {
+  if (typeof opts === 'function') return this.stat(name, {}, opts)
   log('stat', name)
   var self = this
   this.ready(function (err) {
@@ -586,12 +596,11 @@ Layerdrive.prototype.stat = function (name, cb) {
       return layer.stat(name, onstat)
     })
     function onstat (err, layerStat) {
-      if (stat && stat.linkname) return self.stat(stat.linkname, cb)
+      if (stat && stat.linkname && !opts.noFollow) return self.stat(stat.linkname, cb)
       if (err && err.notFound) return cb(null, stat, name)
       if (err) return cb(err)
       stat = stat || layerStat
-      self.statCache[name] = stat
-      log('stat:', stat)
+      if (!opts.noFollow) self.statCache[name] = stat
       return cb(null, stat, name)
     }
   })

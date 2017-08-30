@@ -259,6 +259,27 @@ test('symlinking, equal stats', function (t) {
   })
 })
 
+test('symlinking, original file deletion', function (t) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    var file = Object.keys(reference)[0]
+    drive.symlink(file, '/some_link', function (err) {
+      t.error(err)
+      drive.unlink(file, function (err) {
+        t.error(err)
+        drive.stat('/some_link', function (err, entry) {
+          t.notEqual(err, undefined)
+          drive.stat('/some_link', { noFollow: true }, function (err, entry) {
+            t.error(err)
+            t.equal(entry.linkname, file)
+            t.end()
+          })
+        })
+      })
+    })
+  })
+})
+
 test('cleanup', function (t) {
   testUtil.cleanUp()
   t.end()
