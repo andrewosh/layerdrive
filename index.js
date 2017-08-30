@@ -17,6 +17,7 @@ var pump = require('pump')
 var thunky = require('thunky')
 var hyperImport = require('hyperdrive-import-files')
 var mux = require('multiplex')
+var spy = require('through2-spy')
 var ScopedFs = require('scoped-fs')
 
 var debug = require('debug')('layerdrive')
@@ -412,31 +413,53 @@ Layerdrive.prototype.readFile = function (name, opts, cb) {
 
 Layerdrive.prototype.createWriteStream = function (name, opts) {
   var self = this
+  opts = opts || {}
   var proxy = duplexify()
+
+  var dataLength = 0
+  var dataCounter = spy(function (chunk) {
+    dataLength += chunk.length
+  })
   proxy.cork()
-  this._findFile(name, function (err, realName) {
+
+  this.stat(name, function (err, stat, realName) {
     if (err) return proxy.emit('error', err)
     self._getReadLayer(realName, function (err, layer, index) {
-      if (err && err.notFound) return oncopy()
+      if (err && err.notFound) return onCopy()
       if (err) return proxy.emit('error', err)
       if (layer.key) {
         return self._copyOnWrite(layer, realName, function (err) {
           if (err) return proxy.emit('error', err)
-          oncopy(null, layer)
+          onCopy(null, layer)
         })
       }
       // The file has already been copied.
-      return oncopy(null, layer)
+      return onCopy(null, layer)
     })
-    function oncopy (err, readLayer) {
+    function onCopy (err, readLayer) {
       if (err) return proxy.emit('error', err)
+      if (!stat) {
+        stat = {
+          nlink: 1,
+          uid: 0,
+          gid: 0,
+          size: 0
+        }
+      }
+      stat.mtime = new Date()
       self._updateFileIndex(realName, function (err) {
         if (err) return proxy.emit('error', err)
-        proxy.setWritable(self.cow.createWriteStream(realName, opts))
+        proxy.setWritable(dataCounter)
         proxy.setReadable(false)
+        dataCounter.pipe(self.cow.createWriteStream(realName, opts))
+        stat.size = opts.start || 0
         proxy.uncork()
       })
     }
+    proxy.on('prefinish', function () {
+      stat.size += dataLength
+      self.statCache[name] = stat
+    })
   })
   return proxy
 }
@@ -562,21 +585,9 @@ Layerdrive.prototype.stat = function (name, cb) {
       if (stat && stat.linkname) return self.stat(stat.linkname, cb)
       if (err && err.notFound) return cb(null, stat, name)
       if (err) return cb(err)
-      // If this is a symlink, follow it now.
-      if (!layerStat) {
-        stat = stat || {}
-        self.cow.stat(name, function (err, cowStat) {
-          if (err) return cb(err)
-          stat.size = cowStat.size
-          stat.mtime = cowStat.mtime
-          self.statCache[name] = stat
-          return cb(null, stat, name)
-        })
-      } else {
-        stat = stat || layerStat
-        self.statCache[name] = stat
-        return cb(null, stat, name)
-      }
+      stat = stat || layerStat
+      self.statCache[name] = stat
+      return cb(null, stat, name)
     }
   })
 }

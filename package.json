@@ -38,6 +38,7 @@
     "tar-fs": "^1.15.3",
     "tar-stream": "^1.5.4",
     "temp": "^0.8.3",
+    "through2-spy": "^2.0.0",
     "thunky": "^1.0.2"
   },
   "devDependencies": {
