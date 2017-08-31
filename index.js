@@ -143,28 +143,40 @@ Layerdrive.prototype._createBaseLayerdrive = function (cb) {
     if (err) return cb(err)
     var db = level(dir, { valueEncoding: 'binary' })
     metadataDrive.on('ready', function () {
-      var layers = [{ key: metadataDrive.key, version: metadataDrive.version }]
+      var layers = [{ key: layerDrive.key, version: layerDrive.version }]
       var extract = pump(fs.createReadStream(self.key), tar.extract(), function (err) {
         if (err) return cb(err)
       })
       extract.on('entry', function (header, stream, next) {
-        db.put(header.name, Buffer.alloc(1).writeUInt8(0), function (err) {
+        var key = Buffer.alloc(1)
+        key.writeUInt8(0)
+        if (header.name.startsWith('.')) header.name = header.name.slice(1)
+        db.put(toIndexKey(header.name), key, function (err) {
           if (err) return cb(err)
-          pump(stream, layerDrive.createWriteStream(header.name), function (err) {
-            if (err) return cb(err)
-            return next()
-          })
+          if (header.name.endsWith('/')) {
+            layerDrive.mkdir(header.name, next)
+          } else {
+            pump(stream, layerDrive.createWriteStream(header.name), function (err) {
+              if (err) return cb(err)
+              return next()
+            })
+          }
         })
       })
       extract.on('finish', function () {
-        pump(tarFs.pack(dir), metadataDrive.createWriteStream(DB_FILE), function (err) {
+        var rootKey = Buffer.alloc(1)
+        rootKey.writeUInt8(0)
+        db.put(toIndexKey('/'), rootKey, function (err) {
           if (err) return cb(err)
-          metadataDrive.writeFile(JSON_FILE, JSON.stringify({
-            layers: layers
-          }), { encoding: 'utf-8' }, function (err) {
+          pump(tarFs.pack(dir), metadataDrive.createWriteStream(DB_FILE), function (err) {
             if (err) return cb(err)
-            self.key = metadataDrive.key
-            return cb()
+            metadataDrive.writeFile(JSON_FILE, JSON.stringify({
+              layers: layers
+            }), { encoding: 'utf-8' }, function (err) {
+              if (err) return cb(err)
+              self.key = metadataDrive.key
+              return cb()
+            })
           })
         })
       })
@@ -508,17 +520,12 @@ Layerdrive.prototype.append = function (name, buf, opts, cb) {
 
 Layerdrive.prototype.unlink = function (name, cb) {
   var self = this
-  console.log('unlinking:', name)
   this.ready(function (err) {
     if (err) return cb(err)
-    console.log('in statcache:', self.statCache[name])
     if (self.statCache[name]) delete self.statCache[name]
-    console.log('after deletion')
     self.fileIndex.del(toIndexKey(name), function (err) {
-      console.log('fileIndex error:', err)
       if (err) return cb(err)
       self.cow.exists(name, function (exist) {
-        console.log('exists:', exist)
         if (exist) {
           self.cow.unlink(name, cb)
         } else {
@@ -571,9 +578,9 @@ Layerdrive.prototype.readdir = function (name, cb) {
     if (err) return cb(err)
     var resolved = p.resolve(realName)
     if (!/\/$/.test(resolved)) resolved += '/'
-    var gte = toIndexKey(resolved)
+    var gt = toIndexKey(p.join(resolved, '\x00'))
     var lt = toIndexKey(p.join(resolved, '\xff'))
-    var stream = self.fileIndex.createReadStream({ gte: gte, lt: lt })
+    var stream = self.fileIndex.createReadStream({ gt: gt, lt: lt })
     collect(stream, function (err, entries) {
       if (err) return cb(err)
       return cb(null, entries.map(function (entry) {
@@ -616,7 +623,7 @@ Layerdrive.prototype.mv = function (src, dest, cb) {
         if (err) return cb(err)
         self._updateFileIndex(dest, function (err) {
           if (err) return cb(err)
-          self.statCache[dest] = self.statCache[src]
+          self.statCache[dest] = self.statCache[src] 
           self.unlink(src, function (err) {
             return cb(err)
           })
@@ -670,6 +677,7 @@ Layerdrive.prototype.symlink = function (src, dest, cb) {
       if (stat) return cb(new Error('File already exists.'))
       var st = {
         linkname: src,
+        nlink: 1,
         uid: 0,
         gid: 0,
         mode: DEFAULT_FMODE | Stat.IFLNK
@@ -747,6 +755,7 @@ function getTempStorage (storage, cb) {
 }
 
 function toIndexKey (name) {
+  if (name.endsWith('/')) name = name.slice(0, -1)
   var depth = name.split('/').length - 1
   return lexint.pack(depth, 'hex') + name
 }
