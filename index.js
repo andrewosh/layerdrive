@@ -25,6 +25,7 @@ var log = require('debug')('layerdrive')
 // TODO: merge symlink/link/chmod/chown upstream?
 var Stat = require('hyperdrive/lib/stat')
 var DEFAULT_FMODE = (4 | 2 | 0) << 6 | ((4 | 0 | 0) << 3) | (4 | 0 | 0) // rw-r--r--
+var DEFAULT_DMODE = (4 | 2 | 1) << 6 | ((4 | 0 | 1) << 3) | (4 | 0 | 1) // rwxr-xr-x
 
 var temp = require('temp')
 temp.track()
@@ -458,7 +459,10 @@ Layerdrive.prototype.createWriteStream = function (name, opts) {
           nlink: 1,
           uid: 0,
           gid: 0,
-          size: 0
+          size: 0,
+          mtime: new Date(),
+          atime: new Date(),
+          ctime: new Date()
         }
       }
       stat.mtime = new Date()
@@ -545,10 +549,19 @@ Layerdrive.prototype.mkdir = function (name, opts, cb) {
   var self = this
   this.ready(function (err) {
     if (err) return cb(err)
-    self.cow.mkdir(name, opts, function (err) {
+    self.cow.mkdir(name, function (err) {
       if (err) return cb(err)
       self._updateFileIndex(name, function (err) {
-        return cb(err)
+        if (err) return cb(err)
+        self.statCache[name] = {
+          uid: 0,
+          gid: 0,
+          mode: (opts.mode || DEFAULT_DMODE) | Stat.IFDIR,
+          mtime: new Date(),
+          atime: new Date(),
+          ctime: new Date()
+        }
+        return cb()
       })
     })
   })
@@ -623,7 +636,7 @@ Layerdrive.prototype.mv = function (src, dest, cb) {
         if (err) return cb(err)
         self._updateFileIndex(dest, function (err) {
           if (err) return cb(err)
-          self.statCache[dest] = self.statCache[src] 
+          self.statCache[dest] = self.statCache[src]
           self.unlink(src, function (err) {
             return cb(err)
           })
