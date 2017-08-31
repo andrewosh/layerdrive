@@ -695,8 +695,11 @@ Layerdrive.prototype.symlink = function (src, dest, cb) {
         gid: 0,
         mode: DEFAULT_FMODE | Stat.IFLNK
       }
-      self.statCache[dest] = st
-      return cb()
+      self._updateFileIndex(dest, function (err) {
+        if (err) return cb(err)
+        self.statCache[dest] = st
+        return cb()
+      })
     })
   })
 }
