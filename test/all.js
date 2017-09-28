@@ -2,6 +2,7 @@ var concat = require('concat-stream')
 var test = require('tape')
 var pump = require('pump')
 
+var layerdrive = require('..')
 var testUtil = require('.')
 var createLayerdrive = testUtil.createLayerdrive
 
@@ -32,6 +33,17 @@ function assertValidReadstreams (t, drive, files, cb) {
     }
   })
 }
+
+test('empty drive creation', function (t) {
+  var drive = layerdrive(testUtil.driveFactory)
+  drive.ready(function () {
+    drive.readdir('/', function (err, list) {
+      t.error(err)
+      t.deepEqual(list, [])
+      t.end()
+    })
+  })
+})
 
 test('read/write works for a single layer, single file', function (t) {
   createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {

@@ -1,5 +1,6 @@
 var p = require('path')
 
+var cuid = require('cuid')
 var mkdirp = require('mkdirp')
 var randomstring = require('randomstring')
 var randomItem = require('random-item')
@@ -7,6 +8,7 @@ var rimraf = require('rimraf')
 
 var debug = require('debug')('layerdrive')
 
+var datEncoding = require('dat-encoding')
 var Hyperdrive = require('hyperdrive')
 var Layerdrive = require('..')
 
@@ -35,11 +37,13 @@ function _applyOps (drive, ops, cb) {
   }
 }
 
-function driveFactory (storage, key, opts) {
+function driveFactory (key, opts) {
   if ((typeof key === 'object') && !(key instanceof Buffer)) {
     opts = key
     key = null
   }
+  var id = key ? datEncoding.toStr(key) : cuid()
+  var storage = p.join(TEST_DIR, id)
   var drive = Hyperdrive(storage, key, opts)
   drive.on('ready', function () {
     var existingDrive = drives[drive.key]
@@ -116,5 +120,6 @@ function cleanUp () {
 
 module.exports = {
   createLayerdrive: createLayerdrive,
+  driveFactory: driveFactory,
   cleanUp: cleanUp
 }

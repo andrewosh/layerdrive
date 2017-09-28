@@ -6,7 +6,6 @@ var stream = require('stream')
 var inherits = require('inherits')
 
 var collect = require('stream-collector')
-var cuid = require('cuid')
 var tar = require('tar-stream')
 var tarFs = require('tar-fs')
 var level = require('level')
@@ -19,6 +18,7 @@ var hyperImport = require('hyperdrive-import-files')
 var mux = require('multiplex')
 var spy = require('through2-spy')
 var ScopedFs = require('scoped-fs')
+var datEncoding = require('dat-encoding')
 
 var log = require('debug')('layerdrive')
 
@@ -32,7 +32,6 @@ temp.track()
 
 module.exports = Layerdrive
 
-var DEFAULT_LAYER_DIR = './layers'
 var DB_FILE = '/.layerdrive.db.tar'
 var DB_TEMP_FILE = 'DB'
 var JSON_FILE = '/.layerdrive.json'
@@ -45,12 +44,10 @@ function Layerdrive (key, driveFactory, opts) {
 
   this.opts = opts
   this.key = key
-  this.driveStorage = null
   this.baseDrive = null
   this.metadataDrive = null
   this.layerDrive = null
 
-  this.layerDir = opts.layerDir || DEFAULT_LAYER_DIR
   this.cow = null
 
   // TODO(andrewosh): more flexible indexing
@@ -68,9 +65,7 @@ function Layerdrive (key, driveFactory, opts) {
       opts = key
       key = null
     }
-    var id = key ? toKeyString(key) : cuid()
-    var storage = p.join(self.layerDir, id)
-    return self.driveFactory(storage, key, opts)
+    return self.driveFactory(key, opts)
   }
 
   this.ready = thunky(open)
@@ -151,7 +146,7 @@ Layerdrive.prototype._createEmptyLayerdrive = function (cb) {
     if (err) return cb(err)
     var db = level(dir, { valueEncoding: 'binary' })
     metadataDrive.ready(function () {
-      var layers = [{ key: layerDrive.key, version: layerDrive.version }]
+      var layers = [{ key: toKeyString(layerDrive.key), version: layerDrive.version }]
       var rootKey = Buffer.alloc(1)
       rootKey.writeUInt8(0)
       db.put(toIndexKey('/'), rootKey, function (err) {
@@ -182,7 +177,7 @@ Layerdrive.prototype._createBaseLayerdrive = function (cb) {
     if (err) return cb(err)
     var db = level(dir, { valueEncoding: 'binary' })
     metadataDrive.on('ready', function () {
-      var layers = [{ key: layerDrive.key, version: layerDrive.version }]
+      var layers = [{ key: toKeyString(layerDrive.key), version: layerDrive.version }]
       var extract = pump(fs.createReadStream(self.key), tar.extract(), function (err) {
         if (err) return cb(err)
       })
@@ -328,7 +323,7 @@ Layerdrive.prototype._writeMetadata = function (cb) {
 
   function writeJson () {
     self.layers.push({
-      key: self.layerDrive.key,
+      key: toKeyString(self.layerDrive.key),
       version: self.layerDrive.version
     })
     var metadata = {
@@ -783,11 +778,11 @@ Layerdrive.prototype.updateStat = function (path, stat, cb) {
 }
 
 function toKeyString (key) {
-  return key.toString('hex')
+  return datEncoding.toStr(key)
 }
 
 function fromKeyString (keyString) {
-  return Buffer.from(keyString, 'hex')
+  return datEncoding.toBuf(keyString)
 }
 
 function getTempStorage (storage, cb) {
