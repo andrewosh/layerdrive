@@ -39,7 +39,7 @@ var JSON_FILE = '/.layerdrive.json'
 
 function Layerdrive (key, driveFactory, opts) {
   if (!(this instanceof Layerdrive)) return new Layerdrive(key, driveFactory, opts)
-  if (!key) return new Error('Layerdrives must specify a metadata archive key.')
+  if (typeof key === 'function') return new Layerdrive(null, key, opts)
   opts = opts || {}
   events.EventEmitter.call(this)
 
@@ -82,6 +82,13 @@ function Layerdrive (key, driveFactory, opts) {
   }
 
   function open (cb) {
+    if (!self.key) {
+      return self._createEmptyLayerdrive(function (err) {
+        if (err) return cb(err)
+        return _open(null, cb)
+      })
+    }
+    // TODO: this needs to be moved to a separate module for loading images from tarballs.
     if (typeof self.key === 'string') {
       return self._createBaseLayerdrive(function (err) {
         if (err) return cb(err)
@@ -134,6 +141,37 @@ function Layerdrive (key, driveFactory, opts) {
 
 inherits(Layerdrive, events.EventEmitter)
 
+Layerdrive.prototype._createEmptyLayerdrive = function (cb) {
+  var self = this
+  var layerDrive = self.createHyperdrive(self.opts)
+  var metadataDrive = self.createHyperdrive(self.opts)
+  temp.mkdir({
+    prefix: 'db'
+  }, function (err, dir) {
+    if (err) return cb(err)
+    var db = level(dir, { valueEncoding: 'binary' })
+    metadataDrive.ready(function () {
+      var layers = [{ key: layerDrive.key, version: layerDrive.version }]
+      var rootKey = Buffer.alloc(1)
+      rootKey.writeUInt8(0)
+      db.put(toIndexKey('/'), rootKey, function (err) {
+        if (err) return cb(err)
+        pump(tarFs.pack(dir), metadataDrive.createWriteStream(DB_FILE), function (err) {
+          if (err) return cb(err)
+          metadataDrive.writeFile(JSON_FILE, JSON.stringify({
+            layers: layers
+          }), { encoding: 'utf-8' }, function (err) {
+            if (err) return cb(err)
+            self.key = metadataDrive.key
+            return cb()
+          })
+        })
+      })
+    })
+  })
+}
+
+// TODO: Move this into a separate module, and give it a better name (i.e. layerdrive-tar)
 Layerdrive.prototype._createBaseLayerdrive = function (cb) {
   var self = this
   var layerDrive = self.createHyperdrive(self.opts)
