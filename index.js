@@ -5,7 +5,7 @@ var events = require('events')
 var stream = require('stream')
 var inherits = require('inherits')
 
-var each = require('async-each')
+var each = require('each-async')
 var collect = require('stream-collector')
 var tar = require('tar-stream')
 var tarFs = require('tar-fs')
@@ -62,11 +62,10 @@ function Layerdrive (key, driveFactory, opts) {
   var self = this
   this.driveFactory = driveFactory
   this.createHyperdrive = function (key, opts, cb) {
-    if ((typeof key === 'object') && !(key instanceof Buffer)) {
-      opts = key
-      key = null
-    }
-    return self.driveFactory(key, opts, cb)
+    if (key instanceof Buffer) return driveFactory(datEncoding.toStr(key), opts, cb)
+    if (typeof key === 'function') return driveFactory(null, {}, key)
+    if (typeof key === 'object') return driveFactory(null, key, opts)
+    return driveFactory(key, opts, cb)
   }
 
   this.ready = thunky(open)
@@ -97,22 +96,23 @@ function Layerdrive (key, driveFactory, opts) {
   function _open (err, cb) {
     if (err) return cb(err)
     // TODO: streamline this
-    self.createHyperdrive(self.key, self.opts, function (err, drive) {
+    self.createHyperdrive(self.key, self.opts, function (err, baseDrive) {
       if (err) return cb(err)
-      self.baseDrive = drive
-      self.createHyperdrive(function (err, drive) {
+      self.baseDrive = baseDrive
+      self.createHyperdrive(function (err, layerDrive) {
         if (err) return cb(err)
-        self.layerDrive = drive
-        self.createHyperdrive(function (err, drive) {
+        self.layerDrive = layerDrive
+        self.createHyperdrive(function (err, metadataDrive) {
           if (err) return cb(err)
-          self.metadataDrive = drive
+          self.metadataDrive = metadataDrive
           return onDriveCreation()
         })
       })
     })
 
     function onDriveCreation () {
-      self.baseDrive.on('ready', function () {
+      self.baseDrive.ready(function (err) {
+        if (err) return cb(err)
         self.layerDrive.ready(function (err) {
           if (err) return cb(err)
           self.metadataDrive.ready(function (err) {
@@ -139,8 +139,12 @@ function Layerdrive (key, driveFactory, opts) {
     function loadLayers (err) {
       if (err) return cb(err)
       if (self.layers.length === 0) return cb(null)
-      each(self.layers, function (layer, next) {
-        self.createHyperdrive(layer.key, self.opts, next)
+      each(self.layers, function (layer, index, next) {
+        self.createHyperdrive(layer.key, self.opts, function (err, drive) {
+          if (err) return next(err)
+          self.layerDrives[layer.key] = drive
+          return next()
+        })
       }, function (err) {
         return cb(err)
       })
@@ -156,7 +160,6 @@ Layerdrive.prototype._createEmptyLayerdrive = function (cb) {
     if (err) return cb(err)
     self.createHyperdrive(function (err, metadataDrive) {
       if (err) return cb(err)
-      self.metadataDrive = drive
       return onDriveCreation(layerDrive, metadataDrive)
     })
   })
@@ -196,7 +199,6 @@ Layerdrive.prototype._createBaseLayerdrive = function (cb) {
     if (err) return cb(err)
     self.createHyperdrive(function (err, metadataDrive) {
       if (err) return cb(err)
-      self.metadataDrive = drive
       return onDriveCreation(layerDrive, metadataDrive)
     })
   })
@@ -207,7 +209,7 @@ Layerdrive.prototype._createBaseLayerdrive = function (cb) {
     }, function (err, dir) {
       if (err) return cb(err)
       var db = level(dir, { valueEncoding: 'binary' })
-      metadataDrive.on('ready', function () {
+      metadataDrive.ready(function () {
         var layers = [{ key: toKeyString(layerDrive.key), version: layerDrive.version }]
         var extract = pump(fs.createReadStream(self.key), tar.extract(), function (err) {
           if (err) return cb(err)

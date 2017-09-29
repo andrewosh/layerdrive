@@ -13,7 +13,6 @@ var Hyperdrive = require('hyperdrive')
 var Layerdrive = require('..')
 
 var TEST_DIR = './test-layers'
-mkdirp.sync(TEST_DIR)
 
 var drives = {}
 
@@ -37,11 +36,9 @@ function _applyOps (drive, ops, cb) {
   }
 }
 
-function driveFactory (key, opts) {
-  if ((typeof key === 'object') && !(key instanceof Buffer)) {
-    opts = key
-    key = null
-  }
+function driveFactory (key, opts, cb) {
+  mkdirp.sync(TEST_DIR)
+
   var id = key ? datEncoding.toStr(key) : cuid()
   var storage = p.join(TEST_DIR, id)
   var drive = Hyperdrive(storage, key, opts)
@@ -53,8 +50,8 @@ function driveFactory (key, opts) {
     } else {
       drives[drive.key] = drive
     }
+    return cb(null, drive)
   })
-  return drive
 }
 
 function createLayerdrive (base, numLayers, numFiles, opsPerLayer, fileLength, cb) {
