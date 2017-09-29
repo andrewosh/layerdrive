@@ -5,6 +5,7 @@ var events = require('events')
 var stream = require('stream')
 var inherits = require('inherits')
 
+var each = require('async-each')
 var collect = require('stream-collector')
 var tar = require('tar-stream')
 var tarFs = require('tar-fs')
@@ -60,12 +61,12 @@ function Layerdrive (key, driveFactory, opts) {
 
   var self = this
   this.driveFactory = driveFactory
-  this.createHyperdrive = function (key, opts) {
+  this.createHyperdrive = function (key, opts, cb) {
     if ((typeof key === 'object') && !(key instanceof Buffer)) {
       opts = key
       key = null
     }
-    return self.driveFactory(key, opts)
+    return self.driveFactory(key, opts, cb)
   }
 
   this.ready = thunky(open)
@@ -95,20 +96,33 @@ function Layerdrive (key, driveFactory, opts) {
 
   function _open (err, cb) {
     if (err) return cb(err)
-    self.baseDrive = self.createHyperdrive(self.key, self.opts)
-    self.layerDrive = self.createHyperdrive()
-    self.metadataDrive = self.createHyperdrive()
-
-    self.baseDrive.on('ready', function () {
-      self.layerDrive.ready(function (err) {
+    // TODO: streamline this
+    self.createHyperdrive(self.key, self.opts, function (err, drive) {
+      if (err) return cb(err)
+      self.baseDrive = drive
+      self.createHyperdrive(function (err, drive) {
         if (err) return cb(err)
-        self.metadataDrive.ready(function (err) {
+        self.layerDrive = drive
+        self.createHyperdrive(function (err, drive) {
           if (err) return cb(err)
-          self.key = self.metadataDrive.key
-          createTempStorage()
+          self.metadataDrive = drive
+          return onDriveCreation()
         })
       })
     })
+
+    function onDriveCreation () {
+      self.baseDrive.on('ready', function () {
+        self.layerDrive.ready(function (err) {
+          if (err) return cb(err)
+          self.metadataDrive.ready(function (err) {
+            if (err) return cb(err)
+            self.key = self.metadataDrive.key
+            createTempStorage()
+          })
+        })
+      })
+    }
 
     function createTempStorage () {
       getTempStorage(opts.tempStorage, function (err, tempStorage) {
@@ -125,11 +139,11 @@ function Layerdrive (key, driveFactory, opts) {
     function loadLayers (err) {
       if (err) return cb(err)
       if (self.layers.length === 0) return cb(null)
-      self.layers.forEach(function (layer) {
-        var drive = self.createHyperdrive(layer.key, self.opts)
-        self.layerDrives[layer.key] = drive
+      each(self.layers, function (layer, next) {
+        self.createHyperdrive(layer.key, self.opts, next)
+      }, function (err) {
+        return cb(err)
       })
-      return cb(null)
     }
   }
 }
@@ -138,66 +152,23 @@ inherits(Layerdrive, events.EventEmitter)
 
 Layerdrive.prototype._createEmptyLayerdrive = function (cb) {
   var self = this
-  var layerDrive = self.createHyperdrive(self.opts)
-  var metadataDrive = self.createHyperdrive(self.opts)
-  temp.mkdir({
-    prefix: 'db'
-  }, function (err, dir) {
+  self.createHyperdrive(function (err, layerDrive) {
     if (err) return cb(err)
-    var db = level(dir, { valueEncoding: 'binary' })
-    metadataDrive.ready(function () {
-      var layers = [{ key: toKeyString(layerDrive.key), version: layerDrive.version }]
-      var rootKey = Buffer.alloc(1)
-      rootKey.writeUInt8(0)
-      db.put(toIndexKey('/'), rootKey, function (err) {
-        if (err) return cb(err)
-        pump(tarFs.pack(dir), metadataDrive.createWriteStream(DB_FILE), function (err) {
-          if (err) return cb(err)
-          metadataDrive.writeFile(JSON_FILE, JSON.stringify({
-            layers: layers
-          }), { encoding: 'utf-8' }, function (err) {
-            if (err) return cb(err)
-            self.key = metadataDrive.key
-            return cb()
-          })
-        })
-      })
+    self.createHyperdrive(function (err, metadataDrive) {
+      if (err) return cb(err)
+      self.metadataDrive = drive
+      return onDriveCreation(layerDrive, metadataDrive)
     })
   })
-}
 
-// TODO: Move this into a separate module, and give it a better name (i.e. layerdrive-tar)
-Layerdrive.prototype._createBaseLayerdrive = function (cb) {
-  var self = this
-  var layerDrive = self.createHyperdrive(self.opts)
-  var metadataDrive = self.createHyperdrive(self.opts)
-  temp.mkdir({
-    prefix: 'db'
-  }, function (err, dir) {
-    if (err) return cb(err)
-    var db = level(dir, { valueEncoding: 'binary' })
-    metadataDrive.on('ready', function () {
-      var layers = [{ key: toKeyString(layerDrive.key), version: layerDrive.version }]
-      var extract = pump(fs.createReadStream(self.key), tar.extract(), function (err) {
-        if (err) return cb(err)
-      })
-      extract.on('entry', function (header, stream, next) {
-        var key = Buffer.alloc(1)
-        key.writeUInt8(0)
-        if (header.name.startsWith('.')) header.name = header.name.slice(1)
-        db.put(toIndexKey(header.name), key, function (err) {
-          if (err) return cb(err)
-          if (header.name.endsWith('/')) {
-            layerDrive.mkdir(header.name, next)
-          } else {
-            pump(stream, layerDrive.createWriteStream(header.name), function (err) {
-              if (err) return cb(err)
-              return next()
-            })
-          }
-        })
-      })
-      extract.on('finish', function () {
+  function onDriveCreation (layerDrive, metadataDrive) {
+    temp.mkdir({
+      prefix: 'db'
+    }, function (err, dir) {
+      if (err) return cb(err)
+      var db = level(dir, { valueEncoding: 'binary' })
+      metadataDrive.ready(function () {
+        var layers = [{ key: toKeyString(layerDrive.key), version: layerDrive.version }]
         var rootKey = Buffer.alloc(1)
         rootKey.writeUInt8(0)
         db.put(toIndexKey('/'), rootKey, function (err) {
@@ -215,7 +186,68 @@ Layerdrive.prototype._createBaseLayerdrive = function (cb) {
         })
       })
     })
+  }
+}
+
+// TODO: Move this into a separate module, and give it a better name (i.e. layerdrive-tar)
+Layerdrive.prototype._createBaseLayerdrive = function (cb) {
+  var self = this
+  self.createHyperdrive(function (err, layerDrive) {
+    if (err) return cb(err)
+    self.createHyperdrive(function (err, metadataDrive) {
+      if (err) return cb(err)
+      self.metadataDrive = drive
+      return onDriveCreation(layerDrive, metadataDrive)
+    })
   })
+
+  function onDriveCreation (layerDrive, metadataDrive) {
+    temp.mkdir({
+      prefix: 'db'
+    }, function (err, dir) {
+      if (err) return cb(err)
+      var db = level(dir, { valueEncoding: 'binary' })
+      metadataDrive.on('ready', function () {
+        var layers = [{ key: toKeyString(layerDrive.key), version: layerDrive.version }]
+        var extract = pump(fs.createReadStream(self.key), tar.extract(), function (err) {
+          if (err) return cb(err)
+        })
+        extract.on('entry', function (header, stream, next) {
+          var key = Buffer.alloc(1)
+          key.writeUInt8(0)
+          if (header.name.startsWith('.')) header.name = header.name.slice(1)
+          db.put(toIndexKey(header.name), key, function (err) {
+            if (err) return cb(err)
+            if (header.name.endsWith('/')) {
+              layerDrive.mkdir(header.name, next)
+            } else {
+              pump(stream, layerDrive.createWriteStream(header.name), function (err) {
+                if (err) return cb(err)
+                return next()
+              })
+            }
+          })
+        })
+        extract.on('finish', function () {
+          var rootKey = Buffer.alloc(1)
+          rootKey.writeUInt8(0)
+          db.put(toIndexKey('/'), rootKey, function (err) {
+            if (err) return cb(err)
+            pump(tarFs.pack(dir), metadataDrive.createWriteStream(DB_FILE), function (err) {
+              if (err) return cb(err)
+              metadataDrive.writeFile(JSON_FILE, JSON.stringify({
+                layers: layers
+              }), { encoding: 'utf-8' }, function (err) {
+                if (err) return cb(err)
+                self.key = metadataDrive.key
+                return cb()
+              })
+            })
+          })
+        })
+      })
+    })
+  }
 }
 
 Layerdrive.prototype._readMetadata = function (cb) {

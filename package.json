@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/andrewosh/layerdrive#readme",
   "dependencies": {
+    "async-each": "^1.0.1",
     "dat-encoding": "^4.0.2",
     "debug": "^3.0.1",
     "duplexify": "^3.5.0",
