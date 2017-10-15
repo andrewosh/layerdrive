@@ -45,6 +45,20 @@ test('empty drive creation', function (t) {
   })
 })
 
+test('empty drive write one file', function (t) {
+  var drive = layerdrive(testUtil.driveFactory)
+  drive.ready(function () {
+    drive.writeFile('/hello', 'hey', function (err) {
+      t.error(err)
+      drive.readFile('/hello', { encoding: 'utf8' }, function (err, contents) {
+        t.error(err)
+        t.equal(contents, 'hey')
+        t.end()
+      })
+    })
+  })
+})
+
 test('read/write works for a single layer, single file', function (t) {
   createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
     t.error(err)
@@ -211,9 +225,9 @@ test('stats', function (t) {
           t.error(err)
           t.equal(secondStat.size, 10)
           t.true(secondStat.mtime > firstTime)
-          drive.commit(function (err, newDrive) {
+          drive.commit(function (err) {
             t.error(err)
-            newDrive.stat(file, function (err, finalStat) {
+            drive.stat(file, function (err, finalStat) {
               t.error(err)
               t.equal(finalStat.size, 10)
               // Ensure that other metadata persists across writes.
@@ -238,9 +252,9 @@ test('chown/chmod', function (t) {
       drive.chmod(file, 511, function (err, stat) {
         t.error(err)
         t.equal(stat.mode, 511)
-        drive.commit(function (err, newDrive) {
+        drive.commit(function (err) {
           t.error(err)
-          newDrive.stat(file, function (err, stat) {
+          drive.stat(file, function (err, stat) {
             t.error(err)
             t.equal(stat.uid, 10)
             t.equal(stat.gid, 11)
@@ -288,6 +302,16 @@ test('symlinking, original file deletion', function (t) {
           })
         })
       })
+    })
+  })
+})
+
+test('multiple commits', function (t) {
+  createLayerdrive('alpine', 1, 1, 1, 100, function (err, drive, _, reference) {
+    t.error(err)
+    drive.writeFile('/hello', 'blah', function (err) {
+      t.error(err)
+      t.end()
     })
   })
 })

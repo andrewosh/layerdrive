@@ -49,6 +49,22 @@ function Layerdrive (key, driveFactory, opts) {
   this.metadataDrive = null
   this.layerDrive = null
 
+  this.driveFactory = driveFactory
+  this.createHyperdrive = function (key, opts, cb) {
+    if (key instanceof Buffer) return driveFactory(datEncoding.toStr(key), opts, cb)
+    if (typeof key === 'function') return driveFactory(null, {}, key)
+    if (typeof key === 'object') return driveFactory(null, key, opts)
+    return driveFactory(key, opts, cb)
+  }
+
+  this._reset()
+}
+
+inherits(Layerdrive, events.EventEmitter)
+
+Layerdrive.prototype._reset = function (cb) {
+  var self = this
+
   this.cow = null
 
   // TODO(andrewosh): more flexible indexing
@@ -59,16 +75,7 @@ function Layerdrive (key, driveFactory, opts) {
 
   this.statCache = {}
 
-  var self = this
-  this.driveFactory = driveFactory
-  this.createHyperdrive = function (key, opts, cb) {
-    if (key instanceof Buffer) return driveFactory(datEncoding.toStr(key), opts, cb)
-    if (typeof key === 'function') return driveFactory(null, {}, key)
-    if (typeof key === 'object') return driveFactory(null, key, opts)
-    return driveFactory(key, opts, cb)
-  }
-
-  this.ready = thunky(open)
+  this.ready = thunky(this._open.bind(this))
   this.ready(onready)
 
   function onready (err) {
@@ -76,22 +83,25 @@ function Layerdrive (key, driveFactory, opts) {
     return self.emit('ready')
   }
 
-  function open (cb) {
-    if (!self.key) {
-      return self._createEmptyLayerdrive(function (err) {
-        if (err) return cb(err)
-        return _open(null, cb)
-      })
-    }
-    // TODO: this needs to be moved to a separate module for loading images from tarballs.
-    if (typeof self.key === 'string') {
-      return self._createBaseLayerdrive(function (err) {
-        if (err) return cb(err)
-        return _open(null, cb)
-      })
-    }
-    return _open(null, cb)
+  if (cb) return cb(null)
+}
+
+Layerdrive.prototype._open = function (cb) {
+  var self = this
+  if (!self.key) {
+    return self._createEmptyLayerdrive(function (err) {
+      if (err) return cb(err)
+      return _open(null, cb)
+    })
   }
+  // TODO: this needs to be moved to a separate module for loading images from tarballs.
+  if (typeof self.key === 'string') {
+    return self._createBaseLayerdrive(function (err) {
+      if (err) return cb(err)
+      return _open(null, cb)
+    })
+  }
+  return _open(null, cb)
 
   function _open (err, cb) {
     if (err) return cb(err)
@@ -125,7 +135,7 @@ function Layerdrive (key, driveFactory, opts) {
     }
 
     function createTempStorage () {
-      getTempStorage(opts.tempStorage, function (err, tempStorage) {
+      getTempStorage(self.opts.tempStorage, function (err, tempStorage) {
         if (err) return cb(err)
         self.cow = tempStorage
         processMetadata()
@@ -151,8 +161,6 @@ function Layerdrive (key, driveFactory, opts) {
     }
   }
 }
-
-inherits(Layerdrive, events.EventEmitter)
 
 Layerdrive.prototype._createEmptyLayerdrive = function (cb) {
   var self = this
@@ -437,8 +445,7 @@ Layerdrive.prototype.commit = function (cb) {
             if (err) return cb(err)
             self._writeMetadata(function (err) {
               if (err) return cb(err)
-              return cb(null,
-                Layerdrive(self.metadataDrive.key, self.driveFactory, self.opts))
+              self._reset(cb)
             })
           })
         }

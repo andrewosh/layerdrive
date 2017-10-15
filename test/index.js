@@ -94,9 +94,9 @@ function createLayerdrive (base, numLayers, numFiles, opsPerLayer, fileLength, c
     function commit (err) {
       if (err) return cb(err)
       if (layer.commit) {
-        layer.commit(function (err, nextLayer) {
+        layer.commit(function (err) {
           if (err) return cb(err)
-          finish(nextLayer)
+          finish(layer)
         })
       } else {
         finish(layer)
